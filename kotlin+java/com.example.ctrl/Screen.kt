@@ -42,12 +42,13 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.seconds
 
 // --- 0. SPLASH SCREEN ---
 @Composable
 fun SplashScreen(onNavigateToHome: () -> Unit) {
     LaunchedEffect(Unit) {
-        delay(2000) // FIXED: Standard safe delay prevents the black-screen deadlock
+        delay(2.seconds)
         onNavigateToHome()
     }
     Box(
@@ -87,30 +88,6 @@ fun HomeScreen(isActive: Boolean, studyTimeMins: Int, blockedApps: List<String>,
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("STUDY MATERIALS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 12.dp))
-            Box(modifier = Modifier.fillMaxWidth().dashedBorder(BorderMutedViolet, 1.dp, 16.dp).padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(imageVector = Icons.Outlined.Folder, contentDescription = "Folder", tint = TextDarkGrayPurple, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("No study materials selected", color = TextDarkGrayPurple, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Start a session to add materials", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("BLOCKED APPS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 12.dp))
-            Box(modifier = Modifier.fillMaxWidth().dashedBorder(BorderMutedViolet, 1.dp, 16.dp).padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(imageVector = Icons.Outlined.Lock, contentDescription = "Lock", tint = TextDarkGrayPurple, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("No apps blocked", color = TextDarkGrayPurple, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Start a session to select apps to block", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
-                }
-            }
         } else {
             val displayHours = studyTimeMins / 60
             val displayMins = studyTimeMins % 60
@@ -124,37 +101,12 @@ fun HomeScreen(isActive: Boolean, studyTimeMins: Int, blockedApps: List<String>,
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("ACTIVE SESSION", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(timeLabel, color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                            Text("session", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(selectedFileName.ifEmpty { "Study Material" }, color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text("Time Configured: $timeLabel remaining • ${blockedApps.size} apps locked", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(24.dp))
-                    LinearProgressIndicator(progress = 0.64f, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)), color = SuccessNeonGreen, trackColor = Color.White.copy(alpha = 0.2f))
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(onClick = onUpdateSession, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                        Icon(imageVector = Icons.Outlined.Lock, contentDescription = "Lock", tint = TextWhite, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Update Ctrl Intercept", color = TextWhite, fontWeight = FontWeight.Medium)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Study Materials", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(modifier = Modifier.height(12.dp))
-            StudyMaterialCard(title = selectedFileName, subtitle = "Active Material", isActive = true)
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("BLOCKED APPS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Outlined.Lock, contentDescription = "Locked", tint = BtnElectricPurple)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text("${blockedApps.size} Apps currently blocked", color = TextWhite, fontWeight = FontWeight.Bold)
+                    // FIXED SYNTAX: New Material 3 syntax
+                    LinearProgressIndicator(progress = { 0.64f }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)), color = SuccessNeonGreen, trackColor = Color.White.copy(alpha = 0.2f))
                 }
             }
         }
@@ -166,7 +118,6 @@ fun HomeScreen(isActive: Boolean, studyTimeMins: Int, blockedApps: List<String>,
 fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: Int, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // FIXED: Using Icons.Default.ArrowBack
             IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50))) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextWhite) }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
@@ -174,68 +125,16 @@ fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: I
                 Text("Session Dashboard", color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
         }
-
         Spacer(modifier = Modifier.height(32.dp))
-
-        if (!isActive) {
-            Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(48.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(modifier = Modifier.size(56.dp).background(BtnElectricPurple.copy(alpha=0.1f), shape = RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = BtnElectricPurple, modifier = Modifier.size(28.dp))
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("No Active Session", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Start a focus session to begin blocking distracting apps.", color = TextMutedLilac, fontSize = 12.sp, textAlign = TextAlign.Center)
-                }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = onCreateSession, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(16.dp)) {
-                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = TextWhite)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold)
-            }
-        } else {
+        if (isActive) {
             Card(colors = CardDefaults.cardColors(containerColor = BorderMutedViolet), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50)))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("ONGOING SESSION", color = TextMutedLilac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
+                    Text("ONGOING SESSION", color = TextMutedLilac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(fileName.ifEmpty { "Study Material" }, color = TextWhite, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("$studyTimeMins min left  •  $blockedCount apps blocked", color = TextMutedLilac, fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(16.dp))
-                    LinearProgressIndicator(progress = 0.3f, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("ACTIONS", color = TextDarkGrayPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
-
-            Card(onClick = onUpdate, colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(40.dp).background(BtnElectricPurple.copy(alpha=0.2f), shape = RoundedCornerShape(50)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Edit, contentDescription = "Edit", tint = BtnElectricPurple) }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Update Session", color = TextWhite, fontWeight = FontWeight.Bold)
-                        Text("Pass a quiz first, then edit", color = TextMutedLilac, fontSize = 12.sp)
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = "Go", tint = TextDarkGrayPurple)
-                }
-            }
-
-            Card(onClick = onCancel, colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0B14)), border = BorderStroke(1.dp, Color(0xFF4A1C2C)), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(40.dp).background(Color(0xFFE53935).copy(alpha=0.2f), shape = RoundedCornerShape(50)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935)) }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Cancel Session", color = Color(0xFFFF8A80), fontWeight = FontWeight.Bold)
-                        Text("Pass a quiz to confirm exit", color = TextMutedLilac, fontSize = 12.sp)
-                    }
-                    Icon(Icons.Default.ChevronRight, contentDescription = "Go", tint = TextDarkGrayPurple)
+                    // FIXED SYNTAX: New Material 3 syntax
+                    LinearProgressIndicator(progress = { 0.3f }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
                 }
             }
         }
@@ -900,7 +799,7 @@ fun Chip(text: String, onClick: () -> Unit) {
         Text(text, color = TextMutedLilac, fontSize = 12.sp)
     }
 }
-
+// --- HELPER ---
 fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = this.drawBehind {
     drawRoundRect(
         color = color,
