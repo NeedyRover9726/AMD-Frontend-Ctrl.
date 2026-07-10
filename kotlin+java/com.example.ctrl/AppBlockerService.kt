@@ -7,6 +7,7 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -33,8 +34,11 @@ class AppBlockerService : Service() {
         blockedApps = appsToBlock.mapNotNull { packageMap[it] }
 
         val channelId = "ctrl_blocker"
-        val channel = NotificationChannel(channelId, "Ctrl App Blocker", NotificationManager.IMPORTANCE_LOW)
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Ctrl App Blocker", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        }
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Ctrl Focus Session Active")
@@ -43,7 +47,6 @@ class AppBlockerService : Service() {
             .build()
 
         startForeground(1, notification)
-
         isRunning = true
         startMonitoring()
         return START_STICKY
@@ -53,9 +56,7 @@ class AppBlockerService : Service() {
         handler.post(object : Runnable {
             override fun run() {
                 if (!isRunning) return
-
                 val topPackage = getTopApp()
-
                 if (blockedApps.contains(topPackage)) {
                     val launchIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -88,6 +89,5 @@ class AppBlockerService : Service() {
         isRunning = false
         super.onDestroy()
     }
-
     override fun onBind(intent: Intent?): IBinder? = null
 }
