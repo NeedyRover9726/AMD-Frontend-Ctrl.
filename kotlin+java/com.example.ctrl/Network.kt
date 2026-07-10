@@ -14,35 +14,30 @@ import retrofit2.http.Part
 import retrofit2.http.Query
 
 // ==========================================
-// 1. DATA MODELS (Mirroring Python Responses)
+// 1. DATA MODELS
 // ==========================================
 
-// Response from GET /calculate-break/
 data class BreakResponse(
     val study_time_minutes: Int,
     val recommended_break_minutes: Int
 )
 
-// Response from POST /upload-material/
 data class UploadResponse(
     val status: String,
     val title: String,
     val chunks_saved: Int
 )
 
-// Response from GET /materials/
 data class MaterialsResponse(
     val saved_materials: List<String>
 )
 
-// Response from POST /generate-quiz/ (Python returns a List of these)
 data class QuizQuestion(
     val question: String,
     val options: List<String>,
-    val correct_answer: String // Python returns the string (e.g. "Mitochondria"), not an Index!
+    val correct_answer: String
 )
 
-// Request & Response for POST /evaluate-quiz/
 data class QuizEvaluateRequest(
     val total_questions: Int,
     val correct_answers: Int
@@ -75,7 +70,6 @@ interface ApiService {
     @GET("materials/")
     suspend fun getMaterials(): MaterialsResponse
 
-    // Uses FormUrlEncoded because Python expects `Form(...)`
     @FormUrlEncoded
     @POST("generate-quiz/")
     suspend fun generateQuiz(
@@ -84,7 +78,6 @@ interface ApiService {
         @Field("length") length: Int
     ): List<QuizQuestion>
 
-    // Uses Body because Python expects `QuizResult` (Pydantic BaseModel = JSON)
     @POST("evaluate-quiz/")
     suspend fun evaluateQuiz(
         @Body result: QuizEvaluateRequest
@@ -95,7 +88,6 @@ interface ApiService {
 // 3. RETROFIT CLIENT
 // ==========================================
 object RetrofitClient {
-    // 10.0.2.2 is the Android Emulator's loopback to your computer's localhost
     private const val BASE_URL = "http://10.0.2.2:8000/"
 
     val apiService: ApiService by lazy {
