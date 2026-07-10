@@ -3,6 +3,7 @@ package com.example.ctrl
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -16,7 +17,7 @@ class AppBlockerService : Service() {
     private var isRunning = false
     private var blockedApps = listOf<String>()
 
-    // Matches the names in your UI to the actual Android package codes
+    // Maps UI names to actual Android system package names
     private val packageMap = mapOf(
         "Google Chrome" to "com.android.chrome",
         "TikTok" to "com.zhiliaoapp.musically",
@@ -32,7 +33,6 @@ class AppBlockerService : Service() {
         val appsToBlock = intent?.getStringArrayListExtra("BLOCKED_APPS") ?: return START_NOT_STICKY
         blockedApps = appsToBlock.mapNotNull { packageMap[it] }
 
-        // Create a Foreground Notification (Required by Android so the blocker isn't killed)
         val channelId = "ctrl_blocker"
         val channel = NotificationChannel(channelId, "Ctrl App Blocker", NotificationManager.IMPORTANCE_LOW)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -40,7 +40,7 @@ class AppBlockerService : Service() {
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Ctrl Focus Session Active")
             .setContentText("Monitoring distracting apps...")
-            .setSmallIcon(android.R.drawable.ic_lock_idle_lock) // Default safe icon
+            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .build()
 
         startForeground(1, notification)
@@ -58,7 +58,7 @@ class AppBlockerService : Service() {
                 val topPackage = getTopApp()
 
                 if (blockedApps.contains(topPackage)) {
-                    // INTERCEPT TRIGGERED! Force open the Ctrl Quiz Screen
+                    // INTERCEPT TRIGGERED! Force open the Ctrl App
                     val launchIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         putExtra("NAVIGATE_TO", "intercept_input")
@@ -70,11 +70,23 @@ class AppBlockerService : Service() {
         })
     }
 
+    // --- CRITICAL FIX: REAL-TIME TRACKING ---
     private fun getTopApp(): String {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val time = System.currentTimeMillis()
-        val stats = usageStatsManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, time - 10000, time)
-        return stats?.maxByOrNull { it.lastTimeUsed }?.packageName ?: ""
+        // Look at the exact events from the last 60 seconds
+        val events = usageStatsManager.queryEvents(time - 1000 * 60, time)
+        var topPackage = ""
+        val event = UsageEvents.Event()
+
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            // ACTIVITY_RESUMED means the app was brought to the foreground screen
+            if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
+                topPackage = event.packageName ?: ""
+            }
+        }
+        return topPackage
     }
 
     override fun onDestroy() {
