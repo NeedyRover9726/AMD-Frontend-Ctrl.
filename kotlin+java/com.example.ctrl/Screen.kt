@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -43,6 +44,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.seconds
+
+import com.example.ctrl.ui.theme.*
 
 // --- 0. SPLASH SCREEN ---
 @Composable
@@ -88,6 +91,30 @@ fun HomeScreen(isActive: Boolean, studyTimeMins: Int, blockedApps: List<String>,
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("STUDY MATERIALS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 12.dp))
+            Box(modifier = Modifier.fillMaxWidth().dashedBorder(BorderMutedViolet, 1.dp, 16.dp).padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(imageVector = Icons.Outlined.Folder, contentDescription = "Folder", tint = TextDarkGrayPurple, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("No study materials selected", color = TextDarkGrayPurple, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Start a session to add materials", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("BLOCKED APPS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(bottom = 12.dp))
+            Box(modifier = Modifier.fillMaxWidth().dashedBorder(BorderMutedViolet, 1.dp, 16.dp).padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(imageVector = Icons.Outlined.Lock, contentDescription = "Lock", tint = TextDarkGrayPurple, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("No apps blocked", color = TextDarkGrayPurple, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Start a session to select apps to block", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
+                }
+            }
         } else {
             val displayHours = studyTimeMins / 60
             val displayMins = studyTimeMins % 60
@@ -101,12 +128,37 @@ fun HomeScreen(isActive: Boolean, studyTimeMins: Int, blockedApps: List<String>,
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("ACTIVE SESSION", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(timeLabel, color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                            Text("session", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                        }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(selectedFileName.ifEmpty { "Study Material" }, color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("Time Configured: $timeLabel remaining • ${blockedApps.size} apps locked", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(24.dp))
-                    // FIXED SYNTAX: New Material 3 syntax
                     LinearProgressIndicator(progress = { 0.64f }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)), color = SuccessNeonGreen, trackColor = Color.White.copy(alpha = 0.2f))
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = onUpdateSession, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                        Icon(imageVector = Icons.Outlined.Lock, contentDescription = "Lock", tint = TextWhite, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Update Ctrl Intercept", color = TextWhite, fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("Study Materials", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(modifier = Modifier.height(12.dp))
+            StudyMaterialCard(title = selectedFileName, subtitle = "Active Material", isActive = true)
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("BLOCKED APPS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Outlined.Lock, contentDescription = "Locked", tint = BtnElectricPurple)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("${blockedApps.size} Apps currently blocked", color = TextWhite, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -118,23 +170,75 @@ fun HomeScreen(isActive: Boolean, studyTimeMins: Int, blockedApps: List<String>,
 fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: Int, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50))) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextWhite) }
+            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50))) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite) }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text("CTRL INTERCEPT", color = BtnElectricPurple, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 Text("Session Dashboard", color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
         }
+
         Spacer(modifier = Modifier.height(32.dp))
-        if (isActive) {
+
+        if (!isActive) {
+            Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(48.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(modifier = Modifier.size(56.dp).background(BtnElectricPurple.copy(alpha=0.1f), shape = RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Lock, contentDescription = "Lock", tint = BtnElectricPurple, modifier = Modifier.size(28.dp))
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("No Active Session", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Start a focus session to begin blocking distracting apps.", color = TextMutedLilac, fontSize = 12.sp, textAlign = TextAlign.Center)
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = onCreateSession, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Default.PlayArrow, contentDescription = "Play", tint = TextWhite)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold)
+            }
+        } else {
             Card(colors = CardDefaults.cardColors(containerColor = BorderMutedViolet), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp)) {
-                    Text("ONGOING SESSION", color = TextMutedLilac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50)))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("ONGOING SESSION", color = TextMutedLilac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(fileName.ifEmpty { "Study Material" }, color = TextWhite, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("$studyTimeMins min left  •  $blockedCount apps blocked", color = TextMutedLilac, fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(16.dp))
-                    // FIXED SYNTAX: New Material 3 syntax
                     LinearProgressIndicator(progress = { 0.3f }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("ACTIONS", color = TextDarkGrayPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 12.dp))
+
+            Card(onClick = onUpdate, colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(40.dp).background(BtnElectricPurple.copy(alpha=0.2f), shape = RoundedCornerShape(50)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Edit, contentDescription = "Edit", tint = BtnElectricPurple) }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Update Session", color = TextWhite, fontWeight = FontWeight.Bold)
+                        Text("Pass a quiz first, then edit", color = TextMutedLilac, fontSize = 12.sp)
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Go", tint = TextDarkGrayPurple)
+                }
+            }
+
+            Card(onClick = onCancel, colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0B14)), border = BorderStroke(1.dp, Color(0xFF4A1C2C)), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(40.dp).background(Color(0xFFE53935).copy(alpha=0.2f), shape = RoundedCornerShape(50)), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935)) }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Cancel Session", color = Color(0xFFFF8A80), fontWeight = FontWeight.Bold)
+                        Text("Pass a quiz to confirm exit", color = TextMutedLilac, fontSize = 12.sp)
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Go", tint = TextDarkGrayPurple)
                 }
             }
         }
@@ -221,11 +325,11 @@ fun QuizScreen(onPass: () -> Unit, onFailReturn: () -> Unit) {
     var quizState by remember { mutableStateOf(QuizState.LOADING) }
     var currentQIndex by remember { mutableIntStateOf(0) }
     var selectedOption by remember { mutableStateOf<Int?>(null) }
-    var isChecked by remember { mutableStateOf(false) }
+    var isChecked by remember { mutableStateOf(value = false) }
     var score by remember { mutableIntStateOf(0) }
     var showCheatWarning by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { delay(1500); quizState = QuizState.ACTIVE }
+    LaunchedEffect(Unit) { delay(1.5.seconds); quizState = QuizState.ACTIVE }
 
     val questions = remember {
         listOf(
@@ -241,12 +345,11 @@ fun QuizScreen(onPass: () -> Unit, onFailReturn: () -> Unit) {
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE && quizState == QuizState.ACTIVE) showCheatWarning = true }
+        val observer = LifecycleEventObserver { _, event -> if ((event == Lifecycle.Event.ON_PAUSE) && (quizState == QuizState.ACTIVE)) showCheatWarning = true }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // STRICT ANTI-CHEAT MODAL
     if (showCheatWarning) {
         Dialog(onDismissRequest = { }, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
             Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, Color(0xFFE53935)), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
@@ -280,11 +383,7 @@ fun QuizScreen(onPass: () -> Unit, onFailReturn: () -> Unit) {
 
             Spacer(modifier = Modifier.height(48.dp))
             Button(onClick = {
-                score = 0
-                currentQIndex = 0
-                selectedOption = null
-                isChecked = false
-                quizState = QuizState.ACTIVE
+                score = 0; currentQIndex = 0; selectedOption = null; isChecked = false; quizState = QuizState.ACTIVE
             }, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(16.dp)) {
                 Text("Try Again", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
@@ -316,7 +415,7 @@ fun QuizScreen(onPass: () -> Unit, onFailReturn: () -> Unit) {
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            LinearProgressIndicator(progress = progress, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
 
             Spacer(modifier = Modifier.height(32.dp))
             Text(question.text, color = TextWhite, fontSize = 20.sp, lineHeight = 28.sp)
@@ -429,9 +528,8 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // FIXED: Using Icons.Default.ArrowBack
             IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp))
             }
             Spacer(modifier = Modifier.width(12.dp))
             Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -490,10 +588,7 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
         Button(
             onClick = {
                 val resolvedMinutes = when (selected) {
-                    "30m" -> 30
-                    "60m" -> 60
-                    "120m" -> 120
-                    else -> (customHours * 60) + customMins
+                    "30m" -> 30; "60m" -> 60; "120m" -> 120; else -> (customHours * 60) + customMins
                 }
                 onNext(resolvedMinutes)
             },
@@ -512,8 +607,7 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // FIXED: Using Icons.Default.ArrowBack
-            IconButton(onClick = {}, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
+            IconButton(onClick = {}, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
             Spacer(modifier = Modifier.width(12.dp))
             Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.weight(1f))
@@ -564,10 +658,7 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit) {
         Button(
             onClick = {
                 val resolvedMinutes = when (selected) {
-                    "30m" -> 30
-                    "60m" -> 60
-                    "ai" -> (studyTimeMins / 4).coerceAtLeast(5)
-                    else -> (customHours * 60) + customMins
+                    "30m" -> 30; "60m" -> 60; "ai" -> (studyTimeMins / 4).coerceAtLeast(5); else -> (customHours * 60) + customMins
                 }
                 onNext(resolvedMinutes)
             },
@@ -597,8 +688,7 @@ fun CreateSessionStep3(currentFileName: String, onFileSelected: (String) -> Unit
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // FIXED: Using Icons.Default.ArrowBack
-            IconButton(onClick = {}, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
+            IconButton(onClick = {}, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
             Spacer(modifier = Modifier.width(12.dp))
             Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.weight(1f))
@@ -627,11 +717,7 @@ fun CreateSessionStep3(currentFileName: String, onFileSelected: (String) -> Unit
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(imageVector = Icons.Default.AddCircle, contentDescription = "Add", tint = if (showError) Color(0xFFE53935) else TextWhite, modifier = Modifier.size(32.dp))
                 Spacer(modifier = Modifier.width(16.dp))
-                Text(
-                    text = currentFileName.ifEmpty { "Upload your notes, PDFs, or assignments" },
-                    color = if (showError) Color(0xFFE53935) else TextMutedLilac,
-                    fontSize = 14.sp
-                )
+                Text(text = currentFileName.ifEmpty { "Upload your notes, PDFs, or assignments" }, color = if (showError) Color(0xFFE53935) else TextMutedLilac, fontSize = 14.sp)
             }
         }
 
@@ -643,11 +729,7 @@ fun CreateSessionStep3(currentFileName: String, onFileSelected: (String) -> Unit
         Spacer(modifier = Modifier.weight(1f))
         Button(
             onClick = {
-                if (currentFileName.isNotEmpty()) {
-                    onNext()
-                } else {
-                    showError = true
-                }
+                if (currentFileName.isNotEmpty()) { onNext() } else { showError = true }
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
@@ -663,8 +745,7 @@ fun CreateSessionStep4(globalBlockedApps: MutableList<String>, onNext: () -> Uni
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            // FIXED: Using Icons.Default.ArrowBack
-            IconButton(onClick = {}, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
+            IconButton(onClick = {}, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
             Spacer(modifier = Modifier.width(12.dp))
             Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.weight(1f))
@@ -687,11 +768,7 @@ fun CreateSessionStep4(globalBlockedApps: MutableList<String>, onNext: () -> Uni
                 Checkbox(
                     checked = globalBlockedApps.contains(app),
                     onCheckedChange = { isChecked ->
-                        if (isChecked) {
-                            if (!globalBlockedApps.contains(app)) globalBlockedApps.add(app)
-                        } else {
-                            globalBlockedApps.remove(app)
-                        }
+                        if (isChecked) { if (!globalBlockedApps.contains(app)) globalBlockedApps.add(app) } else { globalBlockedApps.remove(app) }
                         showError = false
                     },
                     colors = CheckboxDefaults.colors(checkedColor = BtnElectricPurple)
@@ -707,11 +784,7 @@ fun CreateSessionStep4(globalBlockedApps: MutableList<String>, onNext: () -> Uni
         Spacer(modifier = Modifier.weight(1f))
         Button(
             onClick = {
-                if (globalBlockedApps.isNotEmpty()) {
-                    onNext()
-                } else {
-                    showError = true
-                }
+                if (globalBlockedApps.isNotEmpty()) { onNext() } else { showError = true }
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
@@ -737,7 +810,7 @@ fun SessionOverviewScreen(studyTimeMins: Int, breakTimeMins: Int, blockedCount: 
 
                 val studyHours = studyTimeMins / 60
                 val studyMins = studyTimeMins % 60
-                val studyLabel = if (studyHours > 0) "${studyHours}h ${studyMins}m" else "${studyMins} mins"
+                val studyLabel = if (studyHours > 0) "${studyHours}h ${studyMins}m" else "$studyMins mins"
 
                 OverviewRow(label = "Study Time", value = studyLabel)
                 OverviewRow(label = "Break Time", value = "$breakTimeMins mins")
@@ -786,9 +859,7 @@ fun OptionCard(title: String, subtitle: String, isSelected: Boolean, onClick: ()
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.dp, borderColor), shape = RoundedCornerShape(12.dp), modifier = modifier.height(80.dp)) {
         Column(modifier = Modifier.padding(12.dp).fillMaxSize(), verticalArrangement = Arrangement.Center) {
             Text(title, color = TextWhite, fontWeight = FontWeight.Bold)
-            if (subtitle.isNotEmpty()) {
-                Text(subtitle, color = TextDarkGrayPurple, fontSize = 12.sp)
-            }
+            if (subtitle.isNotEmpty()) { Text(subtitle, color = TextDarkGrayPurple, fontSize = 12.sp) }
         }
     }
 }
@@ -799,14 +870,11 @@ fun Chip(text: String, onClick: () -> Unit) {
         Text(text, color = TextMutedLilac, fontSize = 12.sp)
     }
 }
-// --- HELPER ---
+
 fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = this.drawBehind {
     drawRoundRect(
         color = color,
-        style = Stroke(
-            width = strokeWidth.toPx(),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
-        ),
+        style = Stroke(width = strokeWidth.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)),
         cornerRadius = CornerRadius(cornerRadius.toPx())
     )
 }
