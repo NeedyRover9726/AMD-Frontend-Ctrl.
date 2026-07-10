@@ -2,7 +2,7 @@
 
 #### Option 1: Live Demo (Recommended)
 The backend is fully containerized and hosted live on Render. The Android app connects to it automatically out of the box.
-URL: `https://your-app-name.onrender.com`
+URL: `https://ctrl-uam1.onrender.com`
 
 #### Option 2: Run Locally via Docker
 If you prefer to run the containerized backend locally, ensure you have Docker installed and run:
