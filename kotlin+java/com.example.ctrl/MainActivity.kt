@@ -15,14 +15,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val startDest = intent.getStringExtra("NAVIGATE_TO")
 
         setContent {
             MaterialTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF090616)
+                    color = Color(0xFF0F0F1A) // Hardcoded to match BgMidnight safely
                 ) {
                     CtrlApp(
                         initialNavigateTo = startDest,
