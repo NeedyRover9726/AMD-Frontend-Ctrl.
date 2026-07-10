@@ -9,9 +9,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.*
 
 @Composable
-fun CtrlApp(startDestination: String = "splash") {
+fun CtrlApp(
+    initialNavigateTo: String?,
+    registerIntentListener: ((String) -> Unit) -> Unit
+) {
     val navController = rememberNavController()
-    val context = LocalContext.current // Used to launch our service
+    val context = LocalContext.current
 
     var isSessionActive by remember { mutableStateOf(false) }
     var studyMinutes by remember { mutableStateOf(0) }
@@ -19,7 +22,29 @@ fun CtrlApp(startDestination: String = "splash") {
     var selectedFileName by remember { mutableStateOf("") }
     val blockedAppsList = remember { mutableStateListOf<String>() }
 
-    NavHost(navController = navController, startDestination = startDestination) {
+    // Safely trigger explicit routing adjustments outside composition loops
+    LaunchedEffect(initialNavigateTo) {
+        if (!initialNavigateTo.isNullOrEmpty()) {
+            navController.navigate(initialNavigateTo) {
+                popUpTo("home") { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        registerIntentListener { dest ->
+            navController.navigate(dest) {
+                popUpTo("home") { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+        onDispose { registerIntentListener {} }
+    }
+
+    NavHost(navController = navController, startDestination = "splash") {
 
         composable("splash") {
             SplashScreen(onNavigateToHome = {
@@ -28,7 +53,14 @@ fun CtrlApp(startDestination: String = "splash") {
         }
 
         composable("home") {
-            HomeScreen(isActive = isSessionActive, studyTimeMins = studyMinutes, blockedApps = blockedAppsList, selectedFileName = selectedFileName, onStartSession = { navController.navigate("create_step_1") }, onUpdateSession = { navController.navigate("session_dashboard") })
+            HomeScreen(
+                isActive = isSessionActive,
+                studyTimeMins = studyMinutes,
+                blockedApps = blockedAppsList,
+                selectedFileName = selectedFileName,
+                onStartSession = { navController.navigate("create_step_1") },
+                onUpdateSession = { navController.navigate("session_dashboard") }
+            )
         }
 
         composable("create_step_1") {
@@ -51,21 +83,17 @@ fun CtrlApp(startDestination: String = "splash") {
             SessionOverviewScreen(
                 studyTimeMins = studyMinutes, breakTimeMins = breakMinutes, blockedCount = blockedAppsList.size, fileName = selectedFileName,
                 onStartSession = {
-                    // 1. Check if we have permission to view apps
                     val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
                     val mode = appOps.unsafeCheckOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
 
                     if (mode != AppOpsManager.MODE_ALLOWED) {
-                        // Ask user for permission if not granted
                         context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                     } else {
-                        // 2. Start the App Blocker Background Service!
                         isSessionActive = true
                         val serviceIntent = Intent(context, AppBlockerService::class.java).apply {
                             putStringArrayListExtra("BLOCKED_APPS", ArrayList(blockedAppsList))
                         }
                         context.startForegroundService(serviceIntent)
-
                         navController.navigate("home") { popUpTo("home") { inclusive = true } }
                     }
                 },
@@ -95,10 +123,7 @@ fun CtrlApp(startDestination: String = "splash") {
                     isSessionActive = false
                     blockedAppsList.clear()
                     selectedFileName = ""
-
-                    // STOP THE BLOCKER SERVICE!
                     context.stopService(Intent(context, AppBlockerService::class.java))
-
                     navController.navigate("unlock") { popUpTo("home") }
                 },
                 onFailReturn = { navController.popBackStack("session_dashboard", false) }
