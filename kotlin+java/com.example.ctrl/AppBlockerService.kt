@@ -17,7 +17,6 @@ class AppBlockerService : Service() {
     private var isRunning = false
     private var blockedApps = listOf<String>()
 
-    // Maps UI names to actual Android system package names
     private val packageMap = mapOf(
         "Google Chrome" to "com.android.chrome",
         "TikTok" to "com.zhiliaoapp.musically",
@@ -58,30 +57,26 @@ class AppBlockerService : Service() {
                 val topPackage = getTopApp()
 
                 if (blockedApps.contains(topPackage)) {
-                    // INTERCEPT TRIGGERED! Force open the Ctrl App
                     val launchIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                         putExtra("NAVIGATE_TO", "intercept_input")
                     }
                     startActivity(launchIntent)
                 }
-                handler.postDelayed(this, 1000) // Check every 1 second
+                handler.postDelayed(this, 1000)
             }
         })
     }
 
-    // --- CRITICAL FIX: REAL-TIME TRACKING ---
     private fun getTopApp(): String {
         val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val time = System.currentTimeMillis()
-        // Look at the exact events from the last 60 seconds
         val events = usageStatsManager.queryEvents(time - 1000 * 60, time)
         var topPackage = ""
         val event = UsageEvents.Event()
 
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
-            // ACTIVITY_RESUMED means the app was brought to the foreground screen
             if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED) {
                 topPackage = event.packageName ?: ""
             }
