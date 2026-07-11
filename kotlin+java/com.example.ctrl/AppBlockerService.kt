@@ -5,7 +5,10 @@ import android.app.NotificationManager
 import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
+import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -16,15 +19,19 @@ class AppBlockerService : Service() {
     private var isRunning = false
     private var blockedApps = listOf<String>()
 
+    // FIXED: Debounce timer to prevent Intent Spam and Black Screens!
+    private var lastLaunchTime = 0L
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // FIXED: We now safely receive the actual dynamic package names directly from the UI!
         val appsToBlock = intent?.getStringArrayListExtra("BLOCKED_APPS") ?: return START_NOT_STICKY
         blockedApps = appsToBlock.toList()
 
         val channelId = "ctrl_blocker"
 
-        val channel = NotificationChannel(channelId, "Ctrl App Blocker", NotificationManager.IMPORTANCE_LOW)
-        getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Ctrl App Blocker", NotificationManager.IMPORTANCE_LOW)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        }
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Ctrl Focus Session Active")
@@ -32,7 +39,12 @@ class AppBlockerService : Service() {
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .build()
 
-        startForeground(1, notification)
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notification)
+        }
+
         isRunning = true
         startMonitoring()
         return START_STICKY
@@ -44,13 +56,18 @@ class AppBlockerService : Service() {
                 if (!isRunning) return
                 val topPackage = getTopApp()
 
-                // If the app they opened is in their dynamic blocked list, INTERCEPT!
+                // INTERCEPT LOGIC
                 if (blockedApps.contains(topPackage)) {
-                    val launchIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        putExtra("NAVIGATE_TO", "intercept_input")
+                    val currentTime = System.currentTimeMillis()
+                    // Only launch if it's been more than 2 seconds since the last launch
+                    if (currentTime - lastLaunchTime > 2000) {
+                        lastLaunchTime = currentTime
+                        val launchIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            putExtra("NAVIGATE_TO", "intercept_input")
+                        }
+                        startActivity(launchIntent)
                     }
-                    startActivity(launchIntent)
                 }
                 handler.postDelayed(this, 1000)
             }
@@ -58,7 +75,7 @@ class AppBlockerService : Service() {
     }
 
     private fun getTopApp(): String {
-        val usageStatsManager = getSystemService(USAGE_STATS_SERVICE) as UsageStatsManager
+        val usageStatsManager = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val time = System.currentTimeMillis()
         val events = usageStatsManager.queryEvents(time - 1000 * 60, time)
         var topPackage = ""
