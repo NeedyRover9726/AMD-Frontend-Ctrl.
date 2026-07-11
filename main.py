@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -41,7 +43,19 @@ SERVERLESS_TEXT = "accounts/fireworks/models/deepseek-v4-flash"
 
 # Initialize ChromaDB persistent storage locally on the server
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection = chroma_client.get_or_create_collection(name="textbook_materials")
+
+# UPGRADE 1: Use Fireworks' Embedding Model instead of Chroma's default
+fireworks_ef = OpenAIEmbeddingFunction(
+    api_key=FIREWORKS_API_KEY,
+    api_base="https://api.fireworks.ai/inference/v1",
+    model_name="nomic-ai/nomic-embed-text-v1.5"
+)
+
+# Pass the custom embedding function to the collection
+collection = chroma_client.get_or_create_collection(
+    name="textbook_materials",
+    embedding_function=fireworks_ef
+)
 
 def encode_image(file_bytes: bytes) -> str:
     """Converts raw image bytes to a base64 string for the vision model."""
@@ -88,7 +102,7 @@ async def get_break_time(study_time: int = Query(..., description="Study session
 @app.post("/upload-material/")
 async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
     """
-    Phase 1: Receives an image or PDF. Extracts text and saves it into ChromaDB.
+    Phase 1: Receives an image or PDF. Extracts text, chunks it semantically, and saves it.
     """
     try:
         file_bytes = await file.read()
@@ -127,20 +141,30 @@ async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
         if not extracted_text or not extracted_text.strip():
             raise HTTPException(status_code=500, detail="Failed to extract text from the file.")
 
-        chunks = [chunk.strip() for chunk in extracted_text.split("\n\n") if len(chunk.strip()) > 20]
-        if not chunks:
+        # UPGRADE 2: Use LangChain for semantic chunking with overlap
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000, 
+            chunk_overlap=150,
+            separators=["\n\n", "\n", ".", " ", ""]
+        )
+        raw_chunks = text_splitter.split_text(extracted_text)
+
+        if not raw_chunks:
             return {"status": "success", "title": title, "chunks_saved": 0}
 
-        chunk_ids = [str(uuid.uuid4()) for _ in chunks]
-        metadatas = [{"title": title} for _ in chunks]
+        # UPGRADE 3: Contextualize chunks by prepending the title
+        enhanced_chunks = [f"Source Material - {title}:\n{chunk}" for chunk in raw_chunks]
+
+        chunk_ids = [str(uuid.uuid4()) for _ in enhanced_chunks]
+        metadatas = [{"title": title} for _ in enhanced_chunks]
         
         collection.add(
-            documents=chunks,
+            documents=enhanced_chunks,
             metadatas=metadatas,
             ids=chunk_ids
         )
         
-        return {"status": "success", "title": title, "chunks_saved": len(chunks)}
+        return {"status": "success", "title": title, "chunks_saved": len(enhanced_chunks)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -161,7 +185,6 @@ async def list_materials():
 async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)):
     """
     Phase 3: Queries ChromaDB and generates the JSON quiz array.
-    Hackathon Update: Quiz length scales dynamically based on semantic density (ChromaDB distances).
     """
     try:
         title_list = [t.strip() for t in selected_titles.split(",") if t.strip()]
@@ -169,12 +192,11 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
         if not title_list:
             raise HTTPException(status_code=400, detail="You must select at least one material.")
 
-        # 1. RETRIEVE WITH DISTANCES: Ask ChromaDB to include the distance scores
         results = collection.query(
             query_texts=[topic],
             n_results=15, 
             where={"title": {"$in": title_list}},
-            include=["documents", "distances"] # Crucial: Request the semantic math
+            include=["documents", "distances"] 
         )
         
         retrieved_documents = results.get("documents", [[]])[0]
@@ -186,21 +208,13 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
-        # 2. MEASURE CONTEXT DEPTH: Count only the highly relevant chunks
-        # Note: In ChromaDB's default L2 distance, a lower score means a closer match.
-        # You may need to tweak the 1.2 threshold based on your specific embedding model.
         highly_relevant_chunks = [dist for dist in distances if dist < 1.2]
-        
-        # Calculate length: Let's aim for 2 questions per highly relevant chunk
         concept_count = max(1, len(highly_relevant_chunks))
         calculated_length = concept_count * 2
-        
-        # 3. CLAMP IT: Keep it safely within the 5 to 25 boundary
         quiz_length = max(5, min(25, calculated_length))
         
         context_text = "\n---\n".join(retrieved_documents)
 
-        # 4. PROMPT THE AI
         system_prompt = (
             "You are an academic instructor. Your ONLY task is to generate multiple-choice questions based EXCLUSIVELY on the provided Context.\n"
             "Rules:\n"
@@ -255,14 +269,12 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
 async def evaluate_quiz(result: QuizResult):
     """
     Phase 4: Evaluates the quiz score and dictates the next app state.
-    Hackathon Update: Distinguishes between active intercepts and completed sessions.
     """
     if result.total_questions <= 0:
         raise HTTPException(status_code=400, detail="Total questions must be greater than 0.")
         
     score_percentage = (result.correct_answers / result.total_questions) * 100
     
-    # SCENARIO A: The timer finished naturally. Unconditional unlock.
     if result.is_session_complete:
         return {
             "passed": True,
@@ -271,7 +283,6 @@ async def evaluate_quiz(result: QuizResult):
             "message": "You have finished your session, there will no longer be a time limit for your break. Enjoy!"
         }
         
-    # SCENARIO B: The timer is still active (Doomscrolling Intercept). Enforce the 50% rule.
     passed = score_percentage >= 50.0
     
     if passed:
@@ -294,12 +305,12 @@ async def load_demo_data():
     """Automatically loads sample data so judges have something to test immediately."""
     demo_title = "Demo: Introduction to AMD Architectures"
     
-    # Check if demo data already exists so we don't duplicate it
     existing_data = collection.get(include=["metadatas"])
     titles = [meta["title"] for meta in existing_data.get("metadatas", []) if meta]
     
     if demo_title not in titles:
         demo_text = (
+            "Source Material - Demo: Introduction to AMD Architectures:\n"
             "Advanced Micro Devices (AMD) is a leader in high-performance computing. "
             "Their recent architectures focus heavily on parallel processing and efficient "
             "workload distribution, which is critical for running modern LLMs efficiently."
