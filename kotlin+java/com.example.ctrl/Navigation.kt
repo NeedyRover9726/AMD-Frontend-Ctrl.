@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.*
@@ -41,21 +42,16 @@ fun CtrlApp(
     var quizTopic by remember { mutableStateOf("") }
 
     val blockedAppsList = remember { mutableStateListOf<String>() }
-
-    // --- GLOBAL STATE FOR UPLOADED MATERIALS ---
     val uploadedMaterials = remember { mutableStateListOf<StudyMaterial>() }
     var isUploading by remember { mutableStateOf(false) }
 
-    // --- STATE FOR REAL API QUIZZES & DYNAMIC APPS ---
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        // 1. Fetch previously uploaded materials from the server on startup
         try {
             val response = RetrofitClient.apiService.getMaterials()
             response.savedMaterials.forEach { serverName ->
                 if (uploadedMaterials.none { it.name == serverName }) {
-                    // Use Uri.EMPTY for files that exist on server but not locally
                     uploadedMaterials.add(StudyMaterial(serverName, Uri.EMPTY))
                 }
             }
@@ -63,7 +59,6 @@ fun CtrlApp(
             Log.e("FetchMaterials", "Failed to fetch materials from server", e)
         }
 
-        // 2. Dynamically load installed apps
         val pm = context.packageManager
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         val appList = mutableListOf<AppInfo>()
@@ -132,7 +127,6 @@ fun CtrlApp(
                 onOpenFile = {
                     selectedFileUri?.let { uri ->
                         isReadingStarted = true
-                        // Only try to open the file physically if it exists on the local phone
                         if (uri != Uri.EMPTY) {
                             try {
                                 val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -160,26 +154,43 @@ fun CtrlApp(
 
                                 // 1. Send the file to Render
                                 val response = RetrofitClient.apiService.uploadMaterial(titlePart, filePart)
-                                Log.d("Upload", "Success: ${response.status}")
+                                Log.d("Upload", "Status: ${response.status}")
 
-                                // 2. API CALL: Fetch materials again to perfectly sync the dashboard
-                                val materialsResponse = RetrofitClient.apiService.getMaterials()
-                                materialsResponse.savedMaterials.forEach { serverName ->
-                                    if (uploadedMaterials.none { it.name == serverName }) {
-                                        uploadedMaterials.add(StudyMaterial(serverName, Uri.EMPTY))
+                                // 2. FIXED: Check for "processing" status and show a Toast Notification
+                                if (response.status == "processing" || response.status == "success") {
+                                    Toast.makeText(
+                                        context,
+                                        "Document processing in background! Please wait 5-10s before generating a quiz.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+
+                                    // Save the file locally so the UI updates immediately
+                                    val existingIndex = uploadedMaterials.indexOfFirst { it.name == name }
+                                    if (existingIndex != -1) {
+                                        uploadedMaterials[existingIndex] = StudyMaterial(name, uri)
+                                    } else {
+                                        uploadedMaterials.add(StudyMaterial(name, uri))
                                     }
-                                }
 
-                                // 3. Ensure the newly uploaded file saves its local URI so the user can open it
-                                val existingIndex = uploadedMaterials.indexOfFirst { it.name == name }
-                                if (existingIndex != -1) {
-                                    uploadedMaterials[existingIndex] = StudyMaterial(name, uri)
-                                } else {
-                                    uploadedMaterials.add(StudyMaterial(name, uri))
+                                    // 3. Launch a background delay to fetch the synced materials *after* the backend finishes
+                                    launch {
+                                        delay(6.seconds) // Wait 6 seconds for background processing
+                                        try {
+                                            val materialsResponse = RetrofitClient.apiService.getMaterials()
+                                            materialsResponse.savedMaterials.forEach { serverName ->
+                                                if (uploadedMaterials.none { it.name == serverName }) {
+                                                    uploadedMaterials.add(StudyMaterial(serverName, Uri.EMPTY))
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e("Upload", "Delayed fetch failed", e)
+                                        }
+                                    }
                                 }
                             }
                         } catch (e: Exception) {
                             Log.e("Upload", "Failed to upload document", e)
+                            Toast.makeText(context, "Upload Failed. Check internet connection.", Toast.LENGTH_SHORT).show()
                         } finally {
                             isUploading = false
                         }
