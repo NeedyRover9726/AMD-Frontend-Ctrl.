@@ -76,7 +76,7 @@ fun HomeScreen(
     selectedFileName: String,
     readingProgress: Float,
     uploadedMaterials: List<StudyMaterial>,
-    isUploading: Boolean, // Added Uploading State
+    isUploading: Boolean,
     onStartSession: () -> Unit,
     onUpdateSession: () -> Unit,
     onOpenFile: () -> Unit = {},
@@ -99,7 +99,7 @@ fun HomeScreen(
     LaunchedEffect(isActive) {
         if (isActive && studyTimeMins > 0) {
             while (elapsedMinutes < studyTimeMins) {
-                delay(60000L)
+                delay(60.seconds)
                 elapsedMinutes += 1f
             }
         }
@@ -140,11 +140,9 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // --- UPDATED UPLOAD COMPONENT ---
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("STUDY MATERIALS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
 
-                // Show a spinner if uploading to Render, otherwise show the + icon
                 if (isUploading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = BtnElectricPurple, strokeWidth = 2.dp)
                 } else {
