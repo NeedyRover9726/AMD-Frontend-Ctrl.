@@ -76,12 +76,12 @@ fun HomeScreen(
     selectedFileName: String,
     readingProgress: Float,
     uploadedMaterials: List<StudyMaterial>,
+    isUploading: Boolean, // Added Uploading State
     onStartSession: () -> Unit,
     onUpdateSession: () -> Unit,
     onOpenFile: () -> Unit = {},
     onMaterialUploaded: (String, Uri) -> Unit
 ) {
-    // Launcher moved to the Home Screen so users can upload freely
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
@@ -99,7 +99,7 @@ fun HomeScreen(
     LaunchedEffect(isActive) {
         if (isActive && studyTimeMins > 0) {
             while (elapsedMinutes < studyTimeMins) {
-                delay(60.seconds)
+                delay(60000L)
                 elapsedMinutes += 1f
             }
         }
@@ -140,11 +140,17 @@ fun HomeScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // --- UPDATED STUDY MATERIALS COMPONENT WITH + ICON ---
+            // --- UPDATED UPLOAD COMPONENT ---
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("STUDY MATERIALS", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.sp)
-                IconButton(onClick = { launcher.launch("application/pdf") }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Material", tint = BtnElectricPurple)
+
+                // Show a spinner if uploading to Render, otherwise show the + icon
+                if (isUploading) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = BtnElectricPurple, strokeWidth = 2.dp)
+                } else {
+                    IconButton(onClick = { launcher.launch("application/pdf") }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Material", tint = BtnElectricPurple)
+                    }
                 }
             }
 
@@ -448,8 +454,6 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> 
         Text("How long should your break be?", color = TextDarkGrayPurple)
 
         Spacer(modifier = Modifier.height(24.dp))
-
-        // --- ADDED 2 HOURS BREAK TIME EXPLICITLY TO UI ---
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OptionCard("30 min", "", selected == "30m", { selected = "30m" }, Modifier.weight(1f))
             OptionCard("1 hour", "", selected == "60m", { selected = "60m" }, Modifier.weight(1f))
@@ -499,7 +503,6 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> 
     }
 }
 
-// --- UPDATED STEP 3: SELECTS FROM PRE-UPLOADED MATERIALS ---
 @Composable
 fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
     var showError by remember { mutableStateOf(false) }
