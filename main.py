@@ -2,15 +2,21 @@ import os
 import base64
 import uuid
 import json
-import asyncio # ADDED for background threading
+import asyncio
+import shutil # ADDED for temp files
+import tempfile # ADDED for temp files
+from asyncio import Lock # ADDED to prevent SQLite crashes
 import chromadb
 import fitz 
-from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction # ADDED for cloud embeddings
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from openai import OpenAI
 from dotenv import load_dotenv
+
+# ADDED: LangChain's semantic chunker
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -47,33 +53,26 @@ fireworks_ef = OpenAIEmbeddingFunction(
     model_name="nomic-ai/nomic-embed-text-v1.5" 
 )
 
-# Initialize ChromaDB persistent storage locally, but attach the cloud embedder
+# ADDED: Global lock to prevent ChromaDB (SQLite) thread collisions
+chroma_db_lock = Lock()
+
+# Initialize ChromaDB persistent storage locally
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 collection = chroma_client.get_or_create_collection(
     name="textbook_materials",
-    embedding_function=fireworks_ef # This tells ChromaDB to stop using the slow local CPU
+    embedding_function=fireworks_ef,
+    metadata={"hnsw:space": "cosine"} # ADDED: Force Cosine Similarity for Nomic
 )
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list:
-    """Splits text into larger, more semantically useful blocks to reduce API calls."""
-    words = text.split()
-    chunks = []
-    current_chunk = []
-    current_length = 0
-
-    for word in words:
-        current_chunk.append(word)
-        current_length += len(word) + 1 
-        
-        if current_length >= chunk_size:
-            chunks.append(" ".join(current_chunk))
-            overlap_words = current_chunk[-overlap:] if overlap < len(current_chunk) else []
-            current_chunk = overlap_words
-            current_length = sum(len(w) + 1 for w in current_chunk)
-            
-    if current_chunk:
-        chunks.append(" ".join(current_chunk))
-    return chunks
+    """UPDATED: Splits text semantically using LangChain to preserve sentence structure."""
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    return text_splitter.split_text(text)
 
 def batch_insert_to_chroma(chunks: list, title: str):
     """Inserts into ChromaDB in batches to prevent payload size errors."""
@@ -89,12 +88,33 @@ def batch_insert_to_chroma(chunks: list, title: str):
             ids=chunk_ids
         )
 
-def extract_pdf_text(file_bytes: bytes) -> str:
-    """Synchronous PDF extraction to be run in a thread."""
-    pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
-    pdf_text_pages = [page.get_text("text") for page in pdf_document]
-    pdf_document.close()
-    return " ".join(pdf_text_pages)
+# ADDED: Safe background processor for PDFs
+async def process_pdf_background(file_path: str, title: str):
+    """Safely extracts text, chunks it, and saves to ChromaDB in the background."""
+    try:
+        print(f"Starting background processing for: {title}")
+        
+        # Extract text from the temp file on disk
+        pdf_document = fitz.open(file_path)
+        pdf_text_pages = [page.get_text("text") for page in pdf_document]
+        pdf_document.close()
+        extracted_text = " ".join(pdf_text_pages)
+
+        # Chunk the text
+        chunks = chunk_text(extracted_text, chunk_size=800, overlap=100)
+
+        # Use the lock to ensure only ONE thread writes to ChromaDB at a time
+        async with chroma_db_lock:
+            await asyncio.to_thread(batch_insert_to_chroma, chunks, title)
+            
+        print(f"Successfully processed and saved: {title}")
+
+    except Exception as e:
+        print(f"❌ Background processing failed for {title}: {e}")
+    finally:
+        # ALWAYS clean up the temporary file
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 def encode_image(file_bytes: bytes) -> str:
     """Converts raw image bytes to a base64 string for the vision model."""
@@ -141,14 +161,14 @@ async def get_break_time(study_time: int = Query(..., description="Study session
 @app.post("/upload-material/")
 async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
     """
-    Phase 1: Receives an image or PDF. Extracts text and saves it into ChromaDB.
+    Phase 1: Receives an image or PDF. Processes it securely.
     """
     try:
-        file_bytes = await file.read()
         content_type = file.content_type
-        extracted_text = ""
         
+        # --- IMAGE PROCESSING PATH (Remains Synchronous) ---
         if "image" in content_type:
+            file_bytes = await file.read()
             base64_image = encode_image(file_bytes)
             active_vision_model = SERVERLESS_VISION if DEBUG_MODE else GEMMA_DEPLOYMENT
             
@@ -166,35 +186,36 @@ async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
             )
             extracted_text = vision_completion.choices[0].message.content
             
+            if not extracted_text or not extracted_text.strip():
+                raise HTTPException(status_code=500, detail="Failed to extract text from the file.")
+
+            chunks = chunk_text(extracted_text, chunk_size=800, overlap=100)
+            if not chunks:
+                return {"status": "success", "title": title, "chunks_saved": 0}
+
+            # Safety lock added here too just in case
+            async with chroma_db_lock:
+                await asyncio.to_thread(batch_insert_to_chroma, chunks, title)
+            
+            return {"status": "success", "title": title, "chunks_saved": len(chunks)}
+            
+        # --- PDF PROCESSING PATH (Updated to Async Background Task) ---
         elif "pdf" in content_type:
-            # 1. Extract text in a background thread
-            extracted_text = await asyncio.to_thread(extract_pdf_text, file_bytes)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+                shutil.copyfileobj(file.file, temp_file)
+                temp_file_path = temp_file.name
+
+            # Fire off the background task
+            asyncio.create_task(process_pdf_background(temp_file_path, title))
+            
+            return {
+                "status": "processing", 
+                "title": title,
+                "message": "Document received! Processing in the background."
+            }
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type.")
 
-        if not extracted_text or not extracted_text.strip():
-            raise HTTPException(status_code=500, detail="Failed to extract text from the file.")
-
-        # 2. Use the smart chunker (larger chunks = fewer API calls to Fireworks)
-        chunks = chunk_text(extracted_text, chunk_size=800, overlap=100)
-        if not chunks:
-            return {"status": "success", "title": title, "chunks_saved": 0}
-
-        # 3. Send to Fireworks and save to ChromaDB in a background thread
-        await asyncio.to_thread(batch_insert_to_chroma, chunks, title)
-        
-        return {"status": "success", "title": title, "chunks_saved": len(chunks)}
-
-        chunk_ids = [str(uuid.uuid4()) for _ in chunks]
-        metadatas = [{"title": title} for _ in chunks]
-        
-        collection.add(
-            documents=chunks,
-            metadatas=metadatas,
-            ids=chunk_ids
-        )
-        
-        return {"status": "success", "title": title, "chunks_saved": len(chunks)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -215,7 +236,6 @@ async def list_materials():
 async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)):
     """
     Phase 3: Queries ChromaDB and generates the JSON quiz array.
-    Hackathon Update: Quiz length scales dynamically based on semantic density (ChromaDB distances).
     """
     try:
         title_list = [t.strip() for t in selected_titles.split(",") if t.strip()]
@@ -223,12 +243,11 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
         if not title_list:
             raise HTTPException(status_code=400, detail="You must select at least one material.")
 
-        # 1. RETRIEVE WITH DISTANCES: Ask ChromaDB to include the distance scores
         results = collection.query(
             query_texts=[topic],
             n_results=15, 
             where={"title": {"$in": title_list}},
-            include=["documents", "distances"] # Crucial: Request the semantic math
+            include=["documents", "distances"]
         )
         
         retrieved_documents = results.get("documents", [[]])[0]
@@ -240,21 +259,16 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
-        # 2. MEASURE CONTEXT DEPTH: Count only the highly relevant chunks
-        # Note: In ChromaDB's default L2 distance, a lower score means a closer match.
-        # You may need to tweak the 1.2 threshold based on your specific embedding model.
-        highly_relevant_chunks = [dist for dist in distances if dist < 1.2]
+        # UPDATED: We now filter by Cosine Similarity (< 0.3 is highly relevant)
+        highly_relevant_chunks = [dist for dist in distances if dist < 0.3]
         
-        # Calculate length: Let's aim for 2 questions per highly relevant chunk
         concept_count = max(1, len(highly_relevant_chunks))
         calculated_length = concept_count * 2
         
-        # 3. CLAMP IT: Keep it safely within the 5 to 25 boundary
         quiz_length = max(5, min(25, calculated_length))
         
         context_text = "\n---\n".join(retrieved_documents)
 
-        # 4. PROMPT THE AI
         system_prompt = (
             "You are an academic instructor. Your ONLY task is to generate multiple-choice questions based EXCLUSIVELY on the provided Context.\n"
             "Rules:\n"
@@ -309,14 +323,12 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
 async def evaluate_quiz(result: QuizResult):
     """
     Phase 4: Evaluates the quiz score and dictates the next app state.
-    Hackathon Update: Distinguishes between active intercepts and completed sessions.
     """
     if result.total_questions <= 0:
         raise HTTPException(status_code=400, detail="Total questions must be greater than 0.")
         
     score_percentage = (result.correct_answers / result.total_questions) * 100
     
-    # SCENARIO A: The timer finished naturally. Unconditional unlock.
     if result.is_session_complete:
         return {
             "passed": True,
@@ -325,7 +337,6 @@ async def evaluate_quiz(result: QuizResult):
             "message": "You have finished your session, there will no longer be a time limit for your break. Enjoy!"
         }
         
-    # SCENARIO B: The timer is still active (Doomscrolling Intercept). Enforce the 50% rule.
     passed = score_percentage >= 50.0
     
     if passed:
@@ -348,7 +359,6 @@ async def load_demo_data():
     """Automatically loads sample data so judges have something to test immediately."""
     demo_title = "Demo: Introduction to AMD Architectures"
     
-    # Check if demo data already exists so we don't duplicate it
     existing_data = collection.get(include=["metadatas"])
     titles = [meta["title"] for meta in existing_data.get("metadatas", []) if meta]
     
