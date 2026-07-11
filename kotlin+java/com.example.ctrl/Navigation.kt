@@ -3,6 +3,8 @@ package com.example.ctrl
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.runtime.*
@@ -10,6 +12,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.*
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.seconds
+
+// --- DATA CLASSES FOR DYNAMIC APP STATE ---
+data class AppInfo(val name: String, val packageName: String)
+data class StudyMaterial(val name: String, val uri: Uri)
 
 @Composable
 fun CtrlApp(
@@ -19,7 +25,7 @@ fun CtrlApp(
     val navController = rememberNavController()
     val context = LocalContext.current
 
-    var isSessionActive by remember { mutableStateOf(value = false) }
+    var isSessionActive by remember { mutableStateOf(false) }
     var studyMinutes by remember { mutableIntStateOf(0) }
     var breakMinutes by remember { mutableIntStateOf(0) }
     var selectedFileName by remember { mutableStateOf("") }
@@ -27,7 +33,28 @@ fun CtrlApp(
     var readingProgress by remember { mutableFloatStateOf(0.0f) }
     var isReadingStarted by remember { mutableStateOf(false) }
     var quizTopic by remember { mutableStateOf("") }
+
     val blockedAppsList = remember { mutableStateListOf<String>() }
+
+    // --- GLOBAL STATE FOR UPLOADED MATERIALS ---
+    val uploadedMaterials = remember { mutableStateListOf<StudyMaterial>() }
+
+    // --- STATE FOR REAL API QUIZZES & DYNAMIC APPS ---
+    var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        // Dynamically load installed apps when the app starts
+        val pm = context.packageManager
+        val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        val appList = mutableListOf<AppInfo>()
+        for (packageInfo in packages) {
+            if ((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome")) {
+                val appName = pm.getApplicationLabel(packageInfo).toString()
+                appList.add(AppInfo(appName, packageInfo.packageName))
+            }
+        }
+        installedApps = appList.sortedBy { it.name }
+    }
 
     LaunchedEffect(initialNavigateTo) {
         if (!initialNavigateTo.isNullOrEmpty()) {
@@ -59,10 +86,9 @@ fun CtrlApp(
             LaunchedEffect(isSessionActive, isReadingStarted) {
                 if (isSessionActive && isReadingStarted && readingProgress < 1.0f) {
                     while (readingProgress < 1.0f) {
-                        delay(5.seconds) // Slower increment for realism
+                        delay(5.seconds)
                         readingProgress = (readingProgress + 0.1f).coerceAtMost(1.0f)
                     }
-                    // AUTO-REDIRECT TO QUIZ AT 100%
                     if (readingProgress >= 1.0f) {
                         navController.navigate("quiz") {
                             popUpTo("home") { saveState = true }
@@ -77,11 +103,11 @@ fun CtrlApp(
                 blockedApps = blockedAppsList,
                 selectedFileName = selectedFileName,
                 readingProgress = readingProgress,
+                uploadedMaterials = uploadedMaterials,
                 onStartSession = { navController.navigate("create_step_1") },
-                onUpdateSession = { 
-                    // Simulate opening the file when clicking update/dashboard
+                onUpdateSession = {
                     isReadingStarted = true
-                    navController.navigate("session_dashboard") 
+                    navController.navigate("session_dashboard")
                 },
                 onOpenFile = {
                     selectedFileUri?.let { uri ->
@@ -91,6 +117,11 @@ fun CtrlApp(
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                         context.startActivity(Intent.createChooser(intent, "Open study material"))
+                    }
+                },
+                onMaterialUploaded = { name, uri ->
+                    if (uploadedMaterials.none { it.uri == uri }) {
+                        uploadedMaterials.add(StudyMaterial(name, uri))
                     }
                 }
             )
@@ -102,10 +133,19 @@ fun CtrlApp(
             CreateSessionStep2(studyTimeMins = studyMinutes, onNext = { minutes -> breakMinutes = minutes; navController.navigate("create_step_3") }, onBack = { navController.popBackStack() })
         }
         composable("create_step_3") {
-            CreateSessionStep3(currentFileName = selectedFileName, onFileSelected = { fileName, uri -> selectedFileName = fileName; selectedFileUri = uri }, onNext = { navController.navigate("create_step_4") }, onBack = { navController.popBackStack() })
+            CreateSessionStep3(
+                uploadedMaterials = uploadedMaterials,
+                currentFileName = selectedFileName,
+                onFileSelected = { fileName, uri ->
+                    selectedFileName = fileName
+                    selectedFileUri = uri
+                },
+                onNext = { navController.navigate("create_step_4") },
+                onBack = { navController.popBackStack() }
+            )
         }
         composable("create_step_4") {
-            CreateSessionStep4(globalBlockedApps = blockedAppsList, onNext = { navController.navigate("session_overview") }, onBack = { navController.popBackStack() })
+            CreateSessionStep4(globalBlockedApps = blockedAppsList, installedApps = installedApps, onNext = { navController.navigate("session_overview") }, onBack = { navController.popBackStack() })
         }
         composable("session_overview") {
             SessionOverviewScreen(
@@ -141,9 +181,9 @@ fun CtrlApp(
             EndSessionScreen(minutesLeft = studyMinutes, onConfirm = { navController.navigate("quiz") }, onCancel = { navController.popBackStack() })
         }
         composable("intercept_input") {
-            InterceptInputScreen(fileName = selectedFileName, onGenerateQuiz = { topic -> 
+            InterceptInputScreen(fileName = selectedFileName, onGenerateQuiz = { topic ->
                 quizTopic = topic
-                navController.navigate("quiz") 
+                navController.navigate("quiz")
             })
         }
         composable("quiz") {
