@@ -31,7 +31,7 @@ fun CtrlApp(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var isSessionActive by remember { mutableStateOf(value = false) }
+    var isSessionActive by remember { mutableStateOf(false) }
     var studyMinutes by remember { mutableIntStateOf(0) }
     var breakMinutes by remember { mutableIntStateOf(0) }
     var selectedFileName by remember { mutableStateOf("") }
@@ -44,18 +44,31 @@ fun CtrlApp(
 
     // --- GLOBAL STATE FOR UPLOADED MATERIALS ---
     val uploadedMaterials = remember { mutableStateListOf<StudyMaterial>() }
-    var isUploading by remember { mutableStateOf(false) } // New state for the loading spinner
+    var isUploading by remember { mutableStateOf(false) }
 
     // --- STATE FOR REAL API QUIZZES & DYNAMIC APPS ---
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
 
     LaunchedEffect(Unit) {
-        // Dynamically load installed apps when the app starts
+        // 1. Fetch previously uploaded materials from the server on startup
+        try {
+            val response = RetrofitClient.apiService.getMaterials()
+            response.savedMaterials.forEach { serverName ->
+                if (uploadedMaterials.none { it.name == serverName }) {
+                    // Use Uri.EMPTY for files that exist on server but not locally
+                    uploadedMaterials.add(StudyMaterial(serverName, Uri.EMPTY))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("FetchMaterials", "Failed to fetch materials from server", e)
+        }
+
+        // 2. Dynamically load installed apps
         val pm = context.packageManager
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         val appList = mutableListOf<AppInfo>()
         for (packageInfo in packages) {
-            if (((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0) || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome")) {
+            if ((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome")) {
                 val appName = pm.getApplicationLabel(packageInfo).toString()
                 appList.add(AppInfo(appName, packageInfo.packageName))
             }
@@ -86,14 +99,9 @@ fun CtrlApp(
 
     NavHost(navController = navController, startDestination = "splash") {
         composable("splash") {
-            SplashScreen {
-                navController.navigate("home") {
-                    popUpTo("splash") { inclusive = true }
-                }
-            }
+            SplashScreen(onNavigateToHome = { navController.navigate("home") { popUpTo("splash") { inclusive = true } } })
         }
         composable("home") {
-            // Mock increment logic
             LaunchedEffect(isSessionActive, isReadingStarted) {
                 if (isSessionActive && isReadingStarted && readingProgress < 1.0f) {
                     while (readingProgress < 1.0f) {
@@ -115,7 +123,7 @@ fun CtrlApp(
                 selectedFileName = selectedFileName,
                 readingProgress = readingProgress,
                 uploadedMaterials = uploadedMaterials,
-                isUploading = isUploading, // Passing the loading state down
+                isUploading = isUploading,
                 onStartSession = { navController.navigate("create_step_1") },
                 onUpdateSession = {
                     isReadingStarted = true
@@ -124,41 +132,56 @@ fun CtrlApp(
                 onOpenFile = {
                     selectedFileUri?.let { uri ->
                         isReadingStarted = true
-                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, context.contentResolver.getType(uri) ?: "application/pdf")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        // Only try to open the file physically if it exists on the local phone
+                        if (uri != Uri.EMPTY) {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, context.contentResolver.getType(uri) ?: "application/pdf")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(intent, "Open study material"))
+                            } catch (e: Exception) {
+                                Log.e("OpenFile", "Could not open file locally", e)
+                            }
                         }
-                        context.startActivity(Intent.createChooser(intent, "Open study material"))
                     }
                 },
                 onMaterialUploaded = { name, uri ->
-                    // FIXED: Actually sending the document to Render over the internet!
                     coroutineScope.launch {
                         isUploading = true
                         try {
-                            // Read the file bytes from the URI
                             val inputStream = context.contentResolver.openInputStream(uri)
                             val bytes = inputStream?.use { it.readBytes() }
 
                             if (bytes != null) {
-                                // Prepare the Multipart request
                                 val requestBody = RequestBody.create(MediaType.parse("application/pdf"), bytes)
                                 val filePart = MultipartBody.Part.createFormData("file", name, requestBody)
                                 val titlePart = RequestBody.create(MediaType.parse("text/plain"), name)
 
-                                // Send to the backend
+                                // 1. Send the file to Render
                                 val response = RetrofitClient.apiService.uploadMaterial(titlePart, filePart)
                                 Log.d("Upload", "Success: ${response.status}")
 
-                                // Once confirmed by server, add to UI
-                                if (uploadedMaterials.none { it.uri == uri }) {
+                                // 2. API CALL: Fetch materials again to perfectly sync the dashboard
+                                val materialsResponse = RetrofitClient.apiService.getMaterials()
+                                materialsResponse.savedMaterials.forEach { serverName ->
+                                    if (uploadedMaterials.none { it.name == serverName }) {
+                                        uploadedMaterials.add(StudyMaterial(serverName, Uri.EMPTY))
+                                    }
+                                }
+
+                                // 3. Ensure the newly uploaded file saves its local URI so the user can open it
+                                val existingIndex = uploadedMaterials.indexOfFirst { it.name == name }
+                                if (existingIndex != -1) {
+                                    uploadedMaterials[existingIndex] = StudyMaterial(name, uri)
+                                } else {
                                     uploadedMaterials.add(StudyMaterial(name, uri))
                                 }
                             }
                         } catch (e: Exception) {
                             Log.e("Upload", "Failed to upload document", e)
                         } finally {
-                            isUploading = false // Stop the loading spinner
+                            isUploading = false
                         }
                     }
                 }
@@ -219,13 +242,10 @@ fun CtrlApp(
             EndSessionScreen(minutesLeft = studyMinutes, onConfirm = { navController.navigate("quiz") }, onCancel = { navController.popBackStack() })
         }
         composable("intercept_input") {
-            InterceptInputScreen(
-                fileName = selectedFileName,
-                onGenerateQuiz = { topic ->
-                    quizTopic = topic
-                    navController.navigate("quiz")
-                }
-            )
+            InterceptInputScreen(fileName = selectedFileName, onGenerateQuiz = { topic ->
+                quizTopic = topic
+                navController.navigate("quiz")
+            })
         }
         composable("quiz") {
             QuizScreen(
