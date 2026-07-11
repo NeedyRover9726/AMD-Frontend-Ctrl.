@@ -1,4 +1,10 @@
-.venv
-__pycache__/
+# Ignore the local Chroma database so old data doesn't copy to the server
 chroma_db/
+.chroma/
+
+# Ignore environments and caches
+__pycache__/
+*.pyc
 .env
+venv/
+.venv/
