@@ -158,33 +158,49 @@ async def list_materials():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/generate-quiz/")
-async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...), length: int = Form(5)):
+async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)):
     """
     Phase 3: Queries ChromaDB and generates the JSON quiz array.
+    Hackathon Update: Quiz length scales dynamically based on semantic density (ChromaDB distances).
     """
     try:
         title_list = [t.strip() for t in selected_titles.split(",") if t.strip()]
         
         if not title_list:
             raise HTTPException(status_code=400, detail="You must select at least one material.")
-            
-        quiz_length = max(5, min(25, length))
 
+        # 1. RETRIEVE WITH DISTANCES: Ask ChromaDB to include the distance scores
         results = collection.query(
             query_texts=[topic],
-            n_results=quiz_length * 2, 
-            where={"title": {"$in": title_list}} 
+            n_results=15, 
+            where={"title": {"$in": title_list}},
+            include=["documents", "distances"] # Crucial: Request the semantic math
         )
         
         retrieved_documents = results.get("documents", [[]])[0]
-        context_text = "\n---\n".join(retrieved_documents)
+        distances = results.get("distances", [[]])[0]
         
-        if not context_text:
+        if not retrieved_documents:
             return JSONResponse(
                 status_code=400,
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
+        # 2. MEASURE CONTEXT DEPTH: Count only the highly relevant chunks
+        # Note: In ChromaDB's default L2 distance, a lower score means a closer match.
+        # You may need to tweak the 1.2 threshold based on your specific embedding model.
+        highly_relevant_chunks = [dist for dist in distances if dist < 1.2]
+        
+        # Calculate length: Let's aim for 2 questions per highly relevant chunk
+        concept_count = max(1, len(highly_relevant_chunks))
+        calculated_length = concept_count * 2
+        
+        # 3. CLAMP IT: Keep it safely within the 5 to 25 boundary
+        quiz_length = max(5, min(25, calculated_length))
+        
+        context_text = "\n---\n".join(retrieved_documents)
+
+        # 4. PROMPT THE AI
         system_prompt = (
             "You are an academic instructor. Your ONLY task is to generate multiple-choice questions based EXCLUSIVELY on the provided Context.\n"
             "Rules:\n"
@@ -201,7 +217,7 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
             "]"
         )
         
-        user_content = f"Context:\n{context_text}\n\nTask: Generate a {quiz_length}-question multiple-choice quiz based on the topic/pages: '{topic}'."
+        user_content = f"Context:\n{context_text}\n\nTask: Generate exactly a {quiz_length}-question multiple-choice quiz based on the topic/pages: '{topic}'."
 
         active_text_model = SERVERLESS_TEXT if DEBUG_MODE else GEMMA_DEPLOYMENT
 
