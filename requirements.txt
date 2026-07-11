@@ -5,3 +5,4 @@ openai
 chromadb
 langchain-text-splitters
 python-dotenv
+python-multipart
