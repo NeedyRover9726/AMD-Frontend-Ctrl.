@@ -7,10 +7,15 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import okhttp3.MediaType
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import kotlin.time.Duration.Companion.seconds
 
 // --- DATA CLASSES FOR DYNAMIC APP STATE ---
@@ -24,8 +29,9 @@ fun CtrlApp(
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
-    var isSessionActive by remember { mutableStateOf(false) }
+    var isSessionActive by remember { mutableStateOf(value = false) }
     var studyMinutes by remember { mutableIntStateOf(0) }
     var breakMinutes by remember { mutableIntStateOf(0) }
     var selectedFileName by remember { mutableStateOf("") }
@@ -38,6 +44,7 @@ fun CtrlApp(
 
     // --- GLOBAL STATE FOR UPLOADED MATERIALS ---
     val uploadedMaterials = remember { mutableStateListOf<StudyMaterial>() }
+    var isUploading by remember { mutableStateOf(false) } // New state for the loading spinner
 
     // --- STATE FOR REAL API QUIZZES & DYNAMIC APPS ---
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
@@ -48,7 +55,7 @@ fun CtrlApp(
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         val appList = mutableListOf<AppInfo>()
         for (packageInfo in packages) {
-            if ((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome")) {
+            if (((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0) || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome")) {
                 val appName = pm.getApplicationLabel(packageInfo).toString()
                 appList.add(AppInfo(appName, packageInfo.packageName))
             }
@@ -79,10 +86,14 @@ fun CtrlApp(
 
     NavHost(navController = navController, startDestination = "splash") {
         composable("splash") {
-            SplashScreen(onNavigateToHome = { navController.navigate("home") { popUpTo("splash") { inclusive = true } } })
+            SplashScreen {
+                navController.navigate("home") {
+                    popUpTo("splash") { inclusive = true }
+                }
+            }
         }
         composable("home") {
-            // Mock increment logic: Only starts after a simulated "open" event
+            // Mock increment logic
             LaunchedEffect(isSessionActive, isReadingStarted) {
                 if (isSessionActive && isReadingStarted && readingProgress < 1.0f) {
                     while (readingProgress < 1.0f) {
@@ -104,6 +115,7 @@ fun CtrlApp(
                 selectedFileName = selectedFileName,
                 readingProgress = readingProgress,
                 uploadedMaterials = uploadedMaterials,
+                isUploading = isUploading, // Passing the loading state down
                 onStartSession = { navController.navigate("create_step_1") },
                 onUpdateSession = {
                     isReadingStarted = true
@@ -120,8 +132,34 @@ fun CtrlApp(
                     }
                 },
                 onMaterialUploaded = { name, uri ->
-                    if (uploadedMaterials.none { it.uri == uri }) {
-                        uploadedMaterials.add(StudyMaterial(name, uri))
+                    // FIXED: Actually sending the document to Render over the internet!
+                    coroutineScope.launch {
+                        isUploading = true
+                        try {
+                            // Read the file bytes from the URI
+                            val inputStream = context.contentResolver.openInputStream(uri)
+                            val bytes = inputStream?.use { it.readBytes() }
+
+                            if (bytes != null) {
+                                // Prepare the Multipart request
+                                val requestBody = RequestBody.create(MediaType.parse("application/pdf"), bytes)
+                                val filePart = MultipartBody.Part.createFormData("file", name, requestBody)
+                                val titlePart = RequestBody.create(MediaType.parse("text/plain"), name)
+
+                                // Send to the backend
+                                val response = RetrofitClient.apiService.uploadMaterial(titlePart, filePart)
+                                Log.d("Upload", "Success: ${response.status}")
+
+                                // Once confirmed by server, add to UI
+                                if (uploadedMaterials.none { it.uri == uri }) {
+                                    uploadedMaterials.add(StudyMaterial(name, uri))
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Upload", "Failed to upload document", e)
+                        } finally {
+                            isUploading = false // Stop the loading spinner
+                        }
                     }
                 }
             )
@@ -181,10 +219,13 @@ fun CtrlApp(
             EndSessionScreen(minutesLeft = studyMinutes, onConfirm = { navController.navigate("quiz") }, onCancel = { navController.popBackStack() })
         }
         composable("intercept_input") {
-            InterceptInputScreen(fileName = selectedFileName, onGenerateQuiz = { topic ->
-                quizTopic = topic
-                navController.navigate("quiz")
-            })
+            InterceptInputScreen(
+                fileName = selectedFileName,
+                onGenerateQuiz = { topic ->
+                    quizTopic = topic
+                    navController.navigate("quiz")
+                }
+            )
         }
         composable("quiz") {
             QuizScreen(
