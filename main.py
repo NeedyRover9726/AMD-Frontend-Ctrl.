@@ -2,8 +2,10 @@ import os
 import base64
 import uuid
 import json
+import asyncio # ADDED for background threading
 import chromadb
-import fitz  # PyMuPDF for handling PDFs
+import fitz 
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction # ADDED for cloud embeddings
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -39,9 +41,60 @@ SERVERLESS_VISION = "accounts/fireworks/models/qwen3p7-plus"
 SERVERLESS_TEXT = "accounts/fireworks/models/deepseek-v4-flash"
 # ==========================================
 
-# Initialize ChromaDB persistent storage locally on the server
+fireworks_ef = OpenAIEmbeddingFunction(
+    api_key=FIREWORKS_API_KEY,
+    api_base="https://api.fireworks.ai/inference/v1",
+    model_name="nomic-ai/nomic-embed-text-v1.5" 
+)
+
+# Initialize ChromaDB persistent storage locally, but attach the cloud embedder
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
-collection = chroma_client.get_or_create_collection(name="textbook_materials")
+collection = chroma_client.get_or_create_collection(
+    name="textbook_materials",
+    embedding_function=fireworks_ef # This tells ChromaDB to stop using the slow local CPU
+)
+
+def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list:
+    """Splits text into larger, more semantically useful blocks to reduce API calls."""
+    words = text.split()
+    chunks = []
+    current_chunk = []
+    current_length = 0
+
+    for word in words:
+        current_chunk.append(word)
+        current_length += len(word) + 1 
+        
+        if current_length >= chunk_size:
+            chunks.append(" ".join(current_chunk))
+            overlap_words = current_chunk[-overlap:] if overlap < len(current_chunk) else []
+            current_chunk = overlap_words
+            current_length = sum(len(w) + 1 for w in current_chunk)
+            
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+    return chunks
+
+def batch_insert_to_chroma(chunks: list, title: str):
+    """Inserts into ChromaDB in batches to prevent payload size errors."""
+    batch_size = 100 
+    for i in range(0, len(chunks), batch_size):
+        batch_chunks = chunks[i:i + batch_size]
+        chunk_ids = [str(uuid.uuid4()) for _ in batch_chunks]
+        metadatas = [{"title": title} for _ in batch_chunks]
+        
+        collection.add(
+            documents=batch_chunks,
+            metadatas=metadatas,
+            ids=chunk_ids
+        )
+
+def extract_pdf_text(file_bytes: bytes) -> str:
+    """Synchronous PDF extraction to be run in a thread."""
+    pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
+    pdf_text_pages = [page.get_text("text") for page in pdf_document]
+    pdf_document.close()
+    return " ".join(pdf_text_pages)
 
 def encode_image(file_bytes: bytes) -> str:
     """Converts raw image bytes to a base64 string for the vision model."""
@@ -114,22 +167,23 @@ async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
             extracted_text = vision_completion.choices[0].message.content
             
         elif "pdf" in content_type:
-            pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
-            pdf_text_pages = []
-            for page_num in range(len(pdf_document)):
-                page = pdf_document.load_page(page_num)
-                pdf_text_pages.append(page.get_text("text"))
-            extracted_text = "\n\n".join(pdf_text_pages)
-            pdf_document.close()
+            # 1. Extract text in a background thread
+            extracted_text = await asyncio.to_thread(extract_pdf_text, file_bytes)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file type.")
 
         if not extracted_text or not extracted_text.strip():
             raise HTTPException(status_code=500, detail="Failed to extract text from the file.")
 
-        chunks = [chunk.strip() for chunk in extracted_text.split("\n\n") if len(chunk.strip()) > 20]
+        # 2. Use the smart chunker (larger chunks = fewer API calls to Fireworks)
+        chunks = chunk_text(extracted_text, chunk_size=800, overlap=100)
         if not chunks:
             return {"status": "success", "title": title, "chunks_saved": 0}
+
+        # 3. Send to Fireworks and save to ChromaDB in a background thread
+        await asyncio.to_thread(batch_insert_to_chroma, chunks, title)
+        
+        return {"status": "success", "title": title, "chunks_saved": len(chunks)}
 
         chunk_ids = [str(uuid.uuid4()) for _ in chunks]
         metadatas = [{"title": title} for _ in chunks]
