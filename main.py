@@ -184,7 +184,17 @@ async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
         await asyncio.to_thread(batch_insert_to_chroma, chunks, title)
         
         return {"status": "success", "title": title, "chunks_saved": len(chunks)}
+
+        chunk_ids = [str(uuid.uuid4()) for _ in chunks]
+        metadatas = [{"title": title} for _ in chunks]
         
+        collection.add(
+            documents=chunks,
+            metadatas=metadatas,
+            ids=chunk_ids
+        )
+        
+        return {"status": "success", "title": title, "chunks_saved": len(chunks)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
