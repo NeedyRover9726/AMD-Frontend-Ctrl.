@@ -63,6 +63,7 @@ def calculate_optimal_break(study_time_minutes: int) -> int:
 class QuizResult(BaseModel):
     total_questions: int
     correct_answers: int
+    is_session_complete: bool = False
 
 # ==========================================
 # 🚀 API ENDPOINTS
@@ -238,13 +239,23 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
 async def evaluate_quiz(result: QuizResult):
     """
     Phase 4: Evaluates the quiz score and dictates the next app state.
-    Pass >= 50%: Lifts the app lock, allowing break or session update.
-    Fail < 50%: Lock remains in place.
+    Hackathon Update: Distinguishes between active intercepts and completed sessions.
     """
     if result.total_questions <= 0:
         raise HTTPException(status_code=400, detail="Total questions must be greater than 0.")
         
     score_percentage = (result.correct_answers / result.total_questions) * 100
+    
+    # SCENARIO A: The timer finished naturally. Unconditional unlock.
+    if result.is_session_complete:
+        return {
+            "passed": True,
+            "score": score_percentage,
+            "action": "DISMISS_OVERLAY",
+            "message": "You have finished your session, there will no longer be a time limit for your break. Enjoy!"
+        }
+        
+    # SCENARIO B: The timer is still active (Doomscrolling Intercept). Enforce the 50% rule.
     passed = score_percentage >= 50.0
     
     if passed:
@@ -252,7 +263,7 @@ async def evaluate_quiz(result: QuizResult):
             "passed": True,
             "score": score_percentage,
             "action": "DISMISS_OVERLAY",
-            "message": "You passed! You may now take your break or update your study session."
+            "message": "Intercept cleared! You earned your break."
         }
     else:
         return {
@@ -261,7 +272,7 @@ async def evaluate_quiz(result: QuizResult):
             "action": "MAINTAIN_LOCK",
             "message": "Score too low. Return to your textbook and try again to unlock."
         }
-    
+
 @app.on_event("startup")
 async def load_demo_data():
     """Automatically loads sample data so judges have something to test immediately."""
