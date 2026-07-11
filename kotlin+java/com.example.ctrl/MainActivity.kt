@@ -5,10 +5,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import com.example.ctrl.ui.theme.BgMidnight
+import com.example.ctrl.ui.theme.CtrlTheme
 
 class MainActivity : ComponentActivity() {
     private var onNewIntentReceived: ((String) -> Unit)? = null
@@ -18,10 +18,10 @@ class MainActivity : ComponentActivity() {
         val startDest = intent.getStringExtra("NAVIGATE_TO")
 
         setContent {
-            MaterialTheme {
+            CtrlTheme(dynamicColor = false) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0F0F1A) // Hardcoded to match BgMidnight safely
+                    color = BgMidnight
                 ) {
                     CtrlApp(
                         initialNavigateTo = startDest,
