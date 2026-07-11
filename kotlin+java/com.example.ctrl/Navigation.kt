@@ -19,7 +19,6 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import kotlin.time.Duration.Companion.seconds
 
-// --- DATA CLASSES FOR DYNAMIC APP STATE ---
 data class AppInfo(val name: String, val packageName: String)
 data class StudyMaterial(val name: String, val uri: Uri)
 
@@ -56,7 +55,7 @@ fun CtrlApp(
                 }
             }
         } catch (e: Exception) {
-            Log.e("FetchMaterials", "Failed to fetch materials from server", e)
+            Log.e("FetchMaterials", "Failed to fetch materials", e)
         }
 
         val pm = context.packageManager
@@ -71,30 +70,23 @@ fun CtrlApp(
         installedApps = appList.sortedBy { it.name }
     }
 
-    LaunchedEffect(initialNavigateTo) {
-        if (!initialNavigateTo.isNullOrEmpty()) {
-            navController.navigate(initialNavigateTo) {
-                popUpTo("home") { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
-        }
-    }
-
     DisposableEffect(Unit) {
         registerIntentListener { dest ->
             navController.navigate(dest) {
-                popUpTo("home") { saveState = true }
+                popUpTo(0) { inclusive = true }
                 launchSingleTop = true
-                restoreState = true
             }
         }
         onDispose { registerIntentListener {} }
     }
 
-    NavHost(navController = navController, startDestination = "splash") {
+    val startDest = initialNavigateTo ?: "splash"
+
+    NavHost(navController = navController, startDestination = startDest) {
         composable("splash") {
-            SplashScreen(onNavigateToHome = { navController.navigate("home") { popUpTo("splash") { inclusive = true } } })
+            SplashScreen(onNavigateToHome = {
+                navController.navigate("home") { popUpTo("splash") { inclusive = true } }
+            })
         }
         composable("home") {
             LaunchedEffect(isSessionActive, isReadingStarted) {
@@ -104,9 +96,7 @@ fun CtrlApp(
                         readingProgress = (readingProgress + 0.1f).coerceAtMost(1.0f)
                     }
                     if (readingProgress >= 1.0f) {
-                        navController.navigate("quiz") {
-                            popUpTo("home") { saveState = true }
-                        }
+                        navController.navigate("quiz") { popUpTo("home") { saveState = true } }
                     }
                 }
             }
@@ -140,6 +130,14 @@ fun CtrlApp(
                         }
                     }
                 },
+                // FIXED: Handles deleting a material globally
+                onDeleteMaterial = { material ->
+                    uploadedMaterials.remove(material)
+                    if (selectedFileName == material.name) {
+                        selectedFileName = ""
+                        selectedFileUri = null
+                    }
+                },
                 onMaterialUploaded = { name, uri ->
                     coroutineScope.launch {
                         isUploading = true
@@ -152,19 +150,11 @@ fun CtrlApp(
                                 val filePart = MultipartBody.Part.createFormData("file", name, requestBody)
                                 val titlePart = RequestBody.create(MediaType.parse("text/plain"), name)
 
-                                // 1. Send the file to Render
                                 val response = RetrofitClient.apiService.uploadMaterial(titlePart, filePart)
-                                Log.d("Upload", "Status: ${response.status}")
 
-                                // 2. FIXED: Check for "processing" status and show a Toast Notification
                                 if (response.status == "processing" || response.status == "success") {
-                                    Toast.makeText(
-                                        context,
-                                        "Document processing in background! Please wait 5-10s before generating a quiz.",
-                                        Toast.LENGTH_LONG
-                                    ).show()
+                                    Toast.makeText(context,"Document processing in background! Please wait 5-10s.", Toast.LENGTH_LONG).show()
 
-                                    // Save the file locally so the UI updates immediately
                                     val existingIndex = uploadedMaterials.indexOfFirst { it.name == name }
                                     if (existingIndex != -1) {
                                         uploadedMaterials[existingIndex] = StudyMaterial(name, uri)
@@ -172,9 +162,8 @@ fun CtrlApp(
                                         uploadedMaterials.add(StudyMaterial(name, uri))
                                     }
 
-                                    // 3. Launch a background delay to fetch the synced materials *after* the backend finishes
                                     launch {
-                                        delay(6.seconds) // Wait 6 seconds for background processing
+                                        delay(6.seconds)
                                         try {
                                             val materialsResponse = RetrofitClient.apiService.getMaterials()
                                             materialsResponse.savedMaterials.forEach { serverName ->
@@ -189,7 +178,6 @@ fun CtrlApp(
                                 }
                             }
                         } catch (e: Exception) {
-                            Log.e("Upload", "Failed to upload document", e)
                             Toast.makeText(context, "Upload Failed. Check internet connection.", Toast.LENGTH_SHORT).show()
                         } finally {
                             isUploading = false
@@ -208,9 +196,14 @@ fun CtrlApp(
             CreateSessionStep3(
                 uploadedMaterials = uploadedMaterials,
                 currentFileName = selectedFileName,
-                onFileSelected = { fileName, uri ->
-                    selectedFileName = fileName
-                    selectedFileUri = uri
+                onFileSelected = { fileName, uri -> selectedFileName = fileName; selectedFileUri = uri },
+                // FIXED: Pass deletion function to the setup screen as well
+                onDeleteMaterial = { material ->
+                    uploadedMaterials.remove(material)
+                    if (selectedFileName == material.name) {
+                        selectedFileName = ""
+                        selectedFileUri = null
+                    }
                 },
                 onNext = { navController.navigate("create_step_4") },
                 onBack = { navController.popBackStack() }
@@ -223,24 +216,31 @@ fun CtrlApp(
             SessionOverviewScreen(
                 studyTimeMins = studyMinutes, breakTimeMins = breakMinutes, blockedCount = blockedAppsList.size, fileName = selectedFileName,
                 onStartSession = {
-                    val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-                    val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                        appOps.unsafeCheckOpRaw(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+                    if (!Settings.canDrawOverlays(context)) {
+                        Toast.makeText(context, "Please ALLOW 'Display over other apps' to enable the App Blocker", Toast.LENGTH_LONG).show()
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                        context.startActivity(intent)
                     } else {
-                        @Suppress("DEPRECATION")
-                        appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
-                    }
-                    if (mode != AppOpsManager.MODE_ALLOWED) {
-                        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                    } else {
-                        isSessionActive = true
-                        readingProgress = 0.0f
-                        isReadingStarted = false
-                        val serviceIntent = Intent(context, AppBlockerService::class.java).apply {
-                            putStringArrayListExtra("BLOCKED_APPS", ArrayList(blockedAppsList))
+                        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+                        val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            appOps.unsafeCheckOpRaw(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
                         }
-                        context.startService(serviceIntent)
-                        navController.navigate("home") { popUpTo("home") { inclusive = true } }
+                        if (mode != AppOpsManager.MODE_ALLOWED) {
+                            Toast.makeText(context, "Please ALLOW 'Usage Access' so Ctrl can detect when you open an app.", Toast.LENGTH_LONG).show()
+                            context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                        } else {
+                            isSessionActive = true
+                            readingProgress = 0.0f
+                            isReadingStarted = false
+                            val serviceIntent = Intent(context, AppBlockerService::class.java).apply {
+                                putStringArrayListExtra("BLOCKED_APPS", ArrayList(blockedAppsList))
+                            }
+                            context.startService(serviceIntent)
+                            navController.navigate("home") { popUpTo("home") { inclusive = true } }
+                        }
                     }
                 },
                 onEditSetup = { navController.popBackStack("create_step_1", inclusive = false) }
@@ -253,10 +253,14 @@ fun CtrlApp(
             EndSessionScreen(minutesLeft = studyMinutes, onConfirm = { navController.navigate("quiz") }, onCancel = { navController.popBackStack() })
         }
         composable("intercept_input") {
-            InterceptInputScreen(fileName = selectedFileName, onGenerateQuiz = { topic ->
-                quizTopic = topic
-                navController.navigate("quiz")
-            })
+            InterceptInputScreen(
+                fileName = selectedFileName,
+                onGenerateQuiz = { topic ->
+                    quizTopic = topic
+                    navController.navigate("quiz")
+                },
+                onBackToStudy = { navController.navigate("home") { popUpTo(0) } }
+            )
         }
         composable("quiz") {
             QuizScreen(
@@ -271,13 +275,23 @@ fun CtrlApp(
                     selectedFileUri = null
                     quizTopic = ""
                     context.stopService(Intent(context, AppBlockerService::class.java))
-                    navController.navigate("unlock") { popUpTo("home") }
+                    navController.navigate("unlock") { popUpTo(0) }
                 },
-                onFailReturn = { navController.popBackStack("home", false) }
+                onFailReturn = { navController.navigate("home") { popUpTo(0) } }
             )
         }
         composable("unlock") {
-            UnlockScreen(onOpenApp = { }, onBackToStudy = { navController.popBackStack("home", false) })
+            UnlockScreen(
+                onOpenApp = {
+                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                        addCategory(Intent.CATEGORY_HOME)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(homeIntent)
+                    navController.navigate("home") { popUpTo(0) }
+                },
+                onBackToStudy = { navController.navigate("home") { popUpTo(0) } }
+            )
         }
     }
 }
