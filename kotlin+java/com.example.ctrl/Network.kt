@@ -2,6 +2,7 @@ package com.example.ctrl
 
 import com.google.gson.annotations.SerializedName
 import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
 import okhttp3.RequestBody
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -13,16 +14,19 @@ import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Query
+import java.util.concurrent.TimeUnit
 
 data class BreakResponse(
     @SerializedName("study_time_minutes") val studyTimeMinutes: Int,
     @SerializedName("recommended_break_minutes") val recommendedBreakMinutes: Int
 )
 
+// FIXED: Updated to handle the new background processing JSON response
 data class UploadResponse(
     val status: String,
     val title: String,
-    @SerializedName("chunks_saved") val chunksSaved: Int
+    @SerializedName("chunks_saved") val chunksSaved: Int? = null,
+    val message: String? = null
 )
 
 data class MaterialsResponse(
@@ -69,12 +73,18 @@ interface ApiService {
 
 @Suppress("unused")
 object RetrofitClient {
-    // UPDATED: Now pointing to your live Render server!
     private const val BASE_URL = "https://ctrl-uam1.onrender.com/"
+
+    private val okHttpClient = OkHttpClient.Builder()
+        .connectTimeout(90, TimeUnit.SECONDS)
+        .readTimeout(90, TimeUnit.SECONDS)
+        .writeTimeout(90, TimeUnit.SECONDS)
+        .build()
 
     val apiService: ApiService by lazy {
         Retrofit.Builder()
             .baseUrl(BASE_URL)
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(ApiService::class.java)
