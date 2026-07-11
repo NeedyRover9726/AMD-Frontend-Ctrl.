@@ -15,7 +15,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -80,6 +82,7 @@ fun HomeScreen(
     onStartSession: () -> Unit,
     onUpdateSession: () -> Unit,
     onOpenFile: () -> Unit = {},
+    onDeleteMaterial: (StudyMaterial) -> Unit, // FIXED: Added delete callback
     onMaterialUploaded: (String, Uri) -> Unit
 ) {
     val context = LocalContext.current
@@ -111,7 +114,17 @@ fun HomeScreen(
 
     val remainingMins = (studyTimeMins - elapsedMinutes.toInt()).coerceAtLeast(0)
 
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(horizontal = 24.dp).padding(top = 48.dp)) {
+    // FIXED: Added scrollState so the Home Screen can scroll infinitely
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgMidnight)
+            .verticalScroll(scrollState)
+            .padding(horizontal = 24.dp)
+            .padding(top = 48.dp, bottom = 48.dp)
+    ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Ctrl.", color = BtnElectricPurple, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             IconButton(onClick = { }, modifier = Modifier.background(TopLogoBg, shape = RoundedCornerShape(50)).size(36.dp)) {
@@ -165,7 +178,13 @@ fun HomeScreen(
             } else {
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     uploadedMaterials.forEach { material ->
-                        StudyMaterialCard(title = material.name, subtitle = "Ready for session", isActive = false)
+                        // FIXED: Passing the onDelete block to enable the trash icon
+                        StudyMaterialCard(
+                            title = material.name,
+                            subtitle = "Ready for session",
+                            isActive = false,
+                            onDelete = { onDeleteMaterial(material) }
+                        )
                     }
                 }
             }
@@ -247,7 +266,7 @@ fun HomeScreen(
 fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: Int, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50))) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite) }
+            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text("CTRL INTERCEPT", color = BtnElectricPurple, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -322,7 +341,7 @@ fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: I
     }
 }
 
-// --- NEW: END SESSION SCREEN ---
+// --- 2.1 END SESSION SCREEN ---
 @Composable
 fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2A0D14), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -347,322 +366,6 @@ fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Un
     }
 }
 
-// --- 6. SETUP FLOW SCREENS ---
-@Composable
-fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
-    var selected by remember { mutableStateOf("60m") }
-    var customHours by remember { mutableIntStateOf(1) }
-    var customMins by remember { mutableIntStateOf(0) }
-
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp))
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(modifier = Modifier.weight(1f))
-            Text("1/4", color = TextMutedLilac, fontSize = 14.sp)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple))
-            Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
-            Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
-            Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-        Text("Study Duration", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("How long do you want to study?", color = TextDarkGrayPurple)
-
-        Spacer(modifier = Modifier.height(24.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OptionCard("30 min", "", selected == "30m", { selected = "30m" }, Modifier.weight(1f))
-            OptionCard("1 hour", "", selected == "60m", { selected = "60m" }, Modifier.weight(1f))
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OptionCard("2 hours", "", selected == "120m", { selected = "120m" }, Modifier.weight(1f))
-            OptionCard("Up to me", "No time limit", selected == "none", { selected = "none" }, Modifier.weight(1f))
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.fillMaxWidth(0.48f))
-        }
-
-        if (selected == "custom") {
-            Spacer(modifier = Modifier.height(32.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = { customHours++ }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
-                    Text(customHours.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-                    Text("HOURS", color = TextDarkGrayPurple, fontSize = 12.sp)
-                    IconButton(onClick = { if (customHours > 0) customHours-- }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
-                }
-                Text(" : ", color = TextWhite, fontSize = 48.sp, modifier = Modifier.padding(horizontal = 24.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = { customMins = (customMins + 5) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
-                    Text(customMins.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-                    Text("MINS", color = TextDarkGrayPurple, fontSize = 12.sp)
-                    IconButton(onClick = { if (customMins >= 5) customMins -= 5 else customMins = 55 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-        Button(
-            onClick = {
-                val resolvedMinutes = when (selected) {
-                    "30m" -> 30; "60m" -> 60; "120m" -> 120; else -> (customHours * 60) + customMins
-                }
-                onNext(resolvedMinutes)
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
-            shape = RoundedCornerShape(16.dp)
-        ) { Text("Continue >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-    }
-}
-
-@Composable
-fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> Unit) {
-    var selected by remember { mutableStateOf("30m") }
-    var customHours by remember { mutableIntStateOf(0) }
-    var customMins by remember { mutableIntStateOf(15) }
-
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(modifier = Modifier.weight(1f))
-            Text("2/4", color = TextMutedLilac, fontSize = 14.sp)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-        Text("Break Duration", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("How long should your break be?", color = TextDarkGrayPurple)
-
-        Spacer(modifier = Modifier.height(24.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OptionCard("30 min", "", selected == "30m", { selected = "30m" }, Modifier.weight(1f))
-            OptionCard("1 hour", "", selected == "60m", { selected = "60m" }, Modifier.weight(1f))
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OptionCard("2 hours", "", selected == "120m", { selected = "120m" }, Modifier.weight(1f))
-            val aiCalc = (studyTimeMins / 4).coerceAtLeast(5)
-            OptionCard("AI Decide", "~${aiCalc}m calculated", selected == "ai", { selected = "ai" }, Modifier.weight(1f))
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.fillMaxWidth(0.48f))
-        }
-
-        if (selected == "custom") {
-            Spacer(modifier = Modifier.height(32.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = { customHours++ }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
-                    Text(customHours.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-                    Text("HOURS", color = TextDarkGrayPurple, fontSize = 12.sp)
-                    IconButton(onClick = { if (customHours > 0) customHours-- }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
-                }
-                Text(" : ", color = TextWhite, fontSize = 48.sp, modifier = Modifier.padding(horizontal = 24.dp))
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = { customMins = (customMins + 5) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
-                    Text(customMins.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-                    Text("MINS", color = TextDarkGrayPurple, fontSize = 12.sp)
-                    IconButton(onClick = { if (customMins >= 5) customMins -= 5 else customMins = 55 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-        Button(
-            onClick = {
-                val resolvedMinutes = when (selected) {
-                    "30m" -> 30; "60m" -> 60; "120m" -> 120; "ai" -> (studyTimeMins / 4).coerceAtLeast(5); else -> (customHours * 60) + customMins
-                }
-                onNext(resolvedMinutes)
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
-            shape = RoundedCornerShape(16.dp)
-        ) { Text("Continue >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-    }
-}
-
-@Composable
-fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
-    var showError by remember { mutableStateOf(false) }
-
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(modifier = Modifier.weight(1f))
-            Text("3/4", color = TextMutedLilac, fontSize = 14.sp)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-        Text("Study Material", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Select a previously uploaded material.", color = TextDarkGrayPurple)
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        if (uploadedMaterials.isEmpty()) {
-            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Text("No materials uploaded.\nPlease return to the Home screen and use the '+' icon.", color = TextMutedLilac, textAlign = TextAlign.Center)
-            }
-        } else {
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(uploadedMaterials) { material ->
-                    val isSelected = currentFileName == material.name
-                    val bgColor = if (isSelected) BtnElectricPurple.copy(alpha = 0.2f) else CardDarkPurple
-                    val borderColor = if (isSelected) BtnElectricPurple else BorderMutedViolet
-
-                    Card(
-                        onClick = {
-                            onFileSelected(material.name, material.uri)
-                            showError = false
-                        },
-                        colors = CardDefaults.cardColors(containerColor = bgColor),
-                        border = BorderStroke(1.dp, borderColor),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    ) {
-                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Outlined.Description, contentDescription = "File", tint = if(isSelected) BtnElectricPurple else TextMutedLilac)
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(material.name, color = TextWhite, fontWeight = FontWeight.Bold, maxLines = 1)
-                        }
-                    }
-                }
-            }
-        }
-
-        if (showError) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("⚠️ You must select a study material to continue.", color = Color(0xFFE53935), fontSize = 12.sp)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(
-            onClick = {
-                if (currentFileName.isNotEmpty()) { onNext() } else { showError = true }
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
-            shape = RoundedCornerShape(16.dp)
-        ) { Text("Continue >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-    }
-}
-
-@Composable
-fun CreateSessionStep4(globalBlockedApps: MutableList<String>, installedApps: List<AppInfo>, onNext: () -> Unit, onBack: () -> Unit) {
-    var showError by remember { mutableStateOf(false) }
-
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
-            Spacer(modifier = Modifier.width(12.dp))
-            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            Spacer(modifier = Modifier.weight(1f))
-            Text("4/4", color = TextMutedLilac, fontSize = 14.sp)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple))
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-        Text("Block Apps", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(8.dp))
-        Text("Choose which apps to intercept.", color = TextDarkGrayPurple)
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            items(installedApps) { app ->
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(app.name, color = TextWhite, maxLines = 1)
-                    Checkbox(
-                        checked = globalBlockedApps.contains(app.packageName),
-                        onCheckedChange = { isChecked ->
-                            if (isChecked) { if (!globalBlockedApps.contains(app.packageName)) globalBlockedApps.add(app.packageName) } else { globalBlockedApps.remove(app.packageName) }
-                            showError = false
-                        },
-                        colors = CheckboxDefaults.colors(checkedColor = BtnElectricPurple)
-                    )
-                }
-            }
-        }
-
-        if (showError) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("⚠️ Please select at least one app to block.", color = Color(0xFFE53935), fontSize = 12.sp)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(
-            onClick = {
-                if (globalBlockedApps.isNotEmpty()) { onNext() } else { showError = true }
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
-            shape = RoundedCornerShape(16.dp)
-        ) { Text("Review Setup >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-    }
-}
-
-@Composable
-fun SessionOverviewScreen(studyTimeMins: Int, breakTimeMins: Int, blockedCount: Int, fileName: String, onStartSession: () -> Unit, onEditSetup: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(BgMidnight)) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
-
-        Card(
-            modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(8.dp),
-            colors = CardDefaults.cardColors(containerColor = CardDarkPurple),
-            border = BorderStroke(1.dp, BorderMutedViolet),
-            shape = RoundedCornerShape(24.dp)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
-                Text("SESSION OVERVIEW", color = BtnElectricPurple, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp)
-                Spacer(modifier = Modifier.height(24.dp))
-
-                val studyHours = studyTimeMins / 60
-                val studyMins = studyTimeMins % 60
-                val studyLabel = if (studyHours > 0) "${studyHours}h ${studyMins}m" else "$studyMins mins"
-
-                OverviewRow(label = "Study Time", value = studyLabel)
-                OverviewRow(label = "Break Time", value = "$breakTimeMins mins")
-                OverviewRow(label = "Target", value = fileName.take(15) + "...")
-                OverviewRow(label = "Blocked Apps", value = "$blockedCount apps targeted")
-
-                Spacer(modifier = Modifier.height(32.dp))
-                Button(onClick = onStartSession, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) { Text("Start Session", color = TextWhite, fontWeight = FontWeight.Bold) }
-                Spacer(modifier = Modifier.height(12.dp))
-                OutlinedButton(onClick = onEditSetup, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) { Text("Edit Setup", color = TextMutedLilac, fontWeight = FontWeight.Medium) }
-            }
-        }
-    }
-}
-
 // --- HELPER COMPONENTS ---
 @Composable
 fun OverviewRow(label: String, value: String) {
@@ -672,19 +375,28 @@ fun OverviewRow(label: String, value: String) {
     }
 }
 
+// FIXED: StudyMaterialCard now accepts an onDelete parameter to show a trash icon
 @Composable
-fun StudyMaterialCard(title: String, subtitle: String, isActive: Boolean, onClick: () -> Unit = {}) {
+fun StudyMaterialCard(title: String, subtitle: String, isActive: Boolean, onClick: () -> Unit = {}, onDelete: (() -> Unit)? = null) {
     val bgColor = if (isActive) BtnElectricPurple.copy(alpha = 0.1f) else CardDarkPurple
     val borderColor = if (isActive) BtnElectricPurple else BorderMutedViolet
     Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.dp, borderColor), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(imageVector = Icons.Outlined.Description, contentDescription = "File", tint = if(isActive) BtnElectricPurple else TextDarkGrayPurple) }
+            Box(modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                Icon(imageVector = Icons.Outlined.Description, contentDescription = "File", tint = if(isActive) BtnElectricPurple else TextDarkGrayPurple)
+            }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(title, color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
                 Text(subtitle, color = if (isActive) BtnElectricPurple else TextDarkGrayPurple, fontSize = 12.sp)
             }
-            if (isActive) { Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50))) }
+            if (isActive) {
+                Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50)))
+            } else if (onDelete != null) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935))
+                }
+            }
         }
     }
 }
@@ -716,11 +428,43 @@ fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = thi
     )
 }
 
+// --- NEW REUSABLE WARNING DIALOG ---
+@Composable
+fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkPurple,
+        title = { Text("End Quiz Attempt?", color = TextWhite, fontWeight = FontWeight.Bold) },
+        text = { Text("Are you sure you want to go back? Your selected apps will remain strictly blocked until you return and pass a quiz.", color = TextMutedLilac) },
+        confirmButton = {
+            Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))) {
+                Text("Yes, Go Back", color = TextWhite, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextMutedLilac)
+            }
+        }
+    )
+}
+
+
 // --- 3. INTERCEPT INPUT SCREEN ---
 @Composable
-fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit) {
+fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit, onBackToStudy: () -> Unit) {
     var inputText by remember { mutableStateOf("") }
     var showValidationError by remember { mutableStateOf(false) }
+
+    // FIXED: Escape Warning State
+    var showEscapeWarning by remember { mutableStateOf(false) }
+
+    // Shows warning dialog if they swipe back
+    BackHandler { showEscapeWarning = true }
+
+    if (showEscapeWarning) {
+        CancelQuizWarningDialog(onConfirm = onBackToStudy, onDismiss = { showEscapeWarning = false })
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
 
@@ -788,6 +532,18 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit) {
         ) {
             Text("Generate Quiz >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
+
+        // FIXED: Button triggers the warning dialog
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { showEscapeWarning = true },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent),
+            border = BorderStroke(1.dp, TextDarkGrayPurple),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
     }
 }
 
@@ -801,7 +557,9 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
     var selectedOption by remember { mutableStateOf<Int?>(null) }
     var isChecked by remember { mutableStateOf(false) }
     var score by remember { mutableIntStateOf(0) }
+
     var showCheatWarning by remember { mutableStateOf(false) }
+    var showEscapeWarning by remember { mutableStateOf(false) } // FIXED: Escape Warning State
 
     var questions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
     var errorMessage by remember { mutableStateOf("") }
@@ -829,7 +587,13 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
         }
     }
 
-    BackHandler(enabled = quizState == QuizState.ACTIVE) { showCheatWarning = true }
+    // Handles physical swiping back
+    BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
+
+    // Dialog for explicitly quitting via the button or back swipe
+    if (showEscapeWarning) {
+        CancelQuizWarningDialog(onConfirm = onFailReturn, onDismiss = { showEscapeWarning = false })
+    }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -1007,6 +771,18 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
             ) {
                 Text(if (!isChecked) "Submit Answer" else if (currentQIndex < questions.size - 1) "Next Question" else "See Results", color = if(selectedOption != null) TextWhite else TextDarkGrayPurple, fontWeight = FontWeight.Bold)
             }
+
+            // FIXED: Triggers the warning dialog instead of immediately quitting
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = { showEscapeWarning = true },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent),
+                border = BorderStroke(1.dp, TextDarkGrayPurple),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
         }
     }
 }
@@ -1035,5 +811,333 @@ fun UnlockScreen(onOpenApp: () -> Unit, onBackToStudy: () -> Unit) {
         Button(onClick = onOpenApp, colors = ButtonDefaults.buttonColors(containerColor = SuccessNeonGreen), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Open App", color = Color(0xFF0A1F05), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
         Spacer(modifier = Modifier.height(16.dp))
         Button(onClick = onBackToStudy, colors = ButtonDefaults.buttonColors(containerColor = CardDarkPurple), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Back to Study Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+    }
+}
+
+// --- 6. SETUP FLOW SCREENS ---
+@Composable
+fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
+    var selected by remember { mutableStateOf("60m") }
+    var customHours by remember { mutableIntStateOf(1) }
+    var customMins by remember { mutableIntStateOf(0) }
+
+    // Applying scroll state just in case of small screens
+    val scrollState = rememberScrollState()
+
+    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(modifier = Modifier.weight(1f))
+            Text("1/4", color = TextMutedLilac, fontSize = 14.sp)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple))
+            Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
+            Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
+            Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("Study Duration", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("How long do you want to study?", color = TextDarkGrayPurple)
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OptionCard("30 min", "", selected == "30m", { selected = "30m" }, Modifier.weight(1f))
+            OptionCard("1 hour", "", selected == "60m", { selected = "60m" }, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OptionCard("2 hours", "", selected == "120m", { selected = "120m" }, Modifier.weight(1f))
+            OptionCard("Up to me", "No time limit", selected == "none", { selected = "none" }, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.fillMaxWidth(0.48f))
+        }
+
+        if (selected == "custom") {
+            Spacer(modifier = Modifier.height(32.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(onClick = { customHours++ }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
+                    Text(customHours.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+                    Text("HOURS", color = TextDarkGrayPurple, fontSize = 12.sp)
+                    IconButton(onClick = { if (customHours > 0) customHours-- }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
+                }
+                Text(" : ", color = TextWhite, fontSize = 48.sp, modifier = Modifier.padding(horizontal = 24.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(onClick = { customMins = (customMins + 5) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
+                    Text(customMins.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+                    Text("MINS", color = TextDarkGrayPurple, fontSize = 12.sp)
+                    IconButton(onClick = { if (customMins >= 5) customMins -= 5 else customMins = 55 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = {
+                val resolvedMinutes = when (selected) {
+                    "30m" -> 30; "60m" -> 60; "120m" -> 120; else -> (customHours * 60) + customMins
+                }
+                onNext(resolvedMinutes)
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
+            shape = RoundedCornerShape(16.dp)
+        ) { Text("Continue >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+    }
+}
+
+@Composable
+fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> Unit) {
+    var selected by remember { mutableStateOf("30m") }
+    var customHours by remember { mutableIntStateOf(0) }
+    var customMins by remember { mutableIntStateOf(15) }
+    val scrollState = rememberScrollState()
+
+    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(modifier = Modifier.weight(1f))
+            Text("2/4", color = TextMutedLilac, fontSize = 14.sp)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("Break Duration", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("How long should your break be?", color = TextDarkGrayPurple)
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OptionCard("30 min", "", selected == "30m", { selected = "30m" }, Modifier.weight(1f))
+            OptionCard("1 hour", "", selected == "60m", { selected = "60m" }, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OptionCard("2 hours", "", selected == "120m", { selected = "120m" }, Modifier.weight(1f))
+            val aiCalc = (studyTimeMins / 4).coerceAtLeast(5)
+            OptionCard("AI Decide", "~${aiCalc}m calculated", selected == "ai", { selected = "ai" }, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.fillMaxWidth(0.48f))
+        }
+
+        if (selected == "custom") {
+            Spacer(modifier = Modifier.height(32.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(onClick = { customHours++ }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
+                    Text(customHours.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+                    Text("HOURS", color = TextDarkGrayPurple, fontSize = 12.sp)
+                    IconButton(onClick = { if (customHours > 0) customHours-- }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
+                }
+                Text(" : ", color = TextWhite, fontSize = 48.sp, modifier = Modifier.padding(horizontal = 24.dp))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    IconButton(onClick = { customMins = (customMins + 5) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
+                    Text(customMins.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+                    Text("MINS", color = TextDarkGrayPurple, fontSize = 12.sp)
+                    IconButton(onClick = { if (customMins >= 5) customMins -= 5 else customMins = 55 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = {
+                val resolvedMinutes = when (selected) {
+                    "30m" -> 30; "60m" -> 60; "120m" -> 120; "ai" -> (studyTimeMins / 4).coerceAtLeast(5); else -> (customHours * 60) + customMins
+                }
+                onNext(resolvedMinutes)
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
+            shape = RoundedCornerShape(16.dp)
+        ) { Text("Continue >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+    }
+}
+
+@Composable
+fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onDeleteMaterial: (StudyMaterial) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
+    var showError by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(modifier = Modifier.weight(1f))
+            Text("3/4", color = TextMutedLilac, fontSize = 14.sp)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BorderMutedViolet))
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("Study Material", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Select a previously uploaded material.", color = TextDarkGrayPurple)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        if (uploadedMaterials.isEmpty()) {
+            Box(modifier = Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                Text("No materials uploaded.\nPlease return to the Home screen and use the '+' icon.", color = TextMutedLilac, textAlign = TextAlign.Center)
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(uploadedMaterials) { material ->
+                    val isSelected = currentFileName == material.name
+                    val bgColor = if (isSelected) BtnElectricPurple.copy(alpha = 0.2f) else CardDarkPurple
+                    val borderColor = if (isSelected) BtnElectricPurple else BorderMutedViolet
+
+                    Card(
+                        onClick = {
+                            onFileSelected(material.name, material.uri)
+                            showError = false
+                        },
+                        colors = CardDefaults.cardColors(containerColor = bgColor),
+                        border = BorderStroke(1.dp, borderColor),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Outlined.Description, contentDescription = "File", tint = if(isSelected) BtnElectricPurple else TextMutedLilac)
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(material.name, color = TextWhite, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+
+                            // FIXED: Added Trash Icon here as well
+                            IconButton(onClick = { onDeleteMaterial(material) }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showError) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("⚠️ You must select a study material to continue.", color = Color(0xFFE53935), fontSize = 12.sp)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = {
+                if (currentFileName.isNotEmpty()) { onNext() } else { showError = true }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
+            shape = RoundedCornerShape(16.dp)
+        ) { Text("Continue >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+    }
+}
+
+@Composable
+fun CreateSessionStep4(globalBlockedApps: MutableList<String>, installedApps: List<AppInfo>, onNext: () -> Unit, onBack: () -> Unit) {
+    var showError by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text("Create Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(modifier = Modifier.weight(1f))
+            Text("4/4", color = TextMutedLilac, fontSize = 14.sp)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple)); Box(modifier = Modifier.height(4.dp).weight(1f).background(BtnElectricPurple))
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("Block Apps", color = TextWhite, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Choose which apps to intercept.", color = TextDarkGrayPurple)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Uses LazyColumn, inherently handles infinite scrolling
+        LazyColumn(modifier = Modifier.weight(1f)) {
+            items(installedApps) { app ->
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(app.name, color = TextWhite, maxLines = 1)
+                    Checkbox(
+                        checked = globalBlockedApps.contains(app.packageName),
+                        onCheckedChange = { isChecked ->
+                            if (isChecked) { if (!globalBlockedApps.contains(app.packageName)) globalBlockedApps.add(app.packageName) } else { globalBlockedApps.remove(app.packageName) }
+                            showError = false
+                        },
+                        colors = CheckboxDefaults.colors(checkedColor = BtnElectricPurple)
+                    )
+                }
+            }
+        }
+
+        if (showError) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("⚠️ Please select at least one app to block.", color = Color(0xFFE53935), fontSize = 12.sp)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = {
+                if (globalBlockedApps.isNotEmpty()) { onNext() } else { showError = true }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
+            shape = RoundedCornerShape(16.dp)
+        ) { Text("Review Setup >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+    }
+}
+
+@Composable
+fun SessionOverviewScreen(studyTimeMins: Int, breakTimeMins: Int, blockedCount: Int, fileName: String, onStartSession: () -> Unit, onEditSetup: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(BgMidnight)) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+
+        Card(
+            modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(8.dp),
+            colors = CardDefaults.cardColors(containerColor = CardDarkPurple),
+            border = BorderStroke(1.dp, BorderMutedViolet),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(24.dp)) {
+                Text("SESSION OVERVIEW", color = BtnElectricPurple, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(24.dp))
+
+                val studyHours = studyTimeMins / 60
+                val studyMins = studyTimeMins % 60
+                val studyLabel = if (studyHours > 0) "${studyHours}h ${studyMins}m" else "$studyMins mins"
+
+                OverviewRow(label = "Study Time", value = studyLabel)
+                OverviewRow(label = "Break Time", value = "$breakTimeMins mins")
+                OverviewRow(label = "Target", value = fileName.take(15) + "...")
+                OverviewRow(label = "Blocked Apps", value = "$blockedCount apps targeted")
+
+                Spacer(modifier = Modifier.height(32.dp))
+                Button(onClick = onStartSession, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) { Text("Start Session", color = TextWhite, fontWeight = FontWeight.Bold) }
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(onClick = onEditSetup, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) { Text("Edit Setup", color = TextMutedLilac, fontWeight = FontWeight.Medium) }
+            }
+        }
     }
 }
