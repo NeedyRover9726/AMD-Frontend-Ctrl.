@@ -6,6 +6,7 @@ import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Intent
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -16,20 +17,10 @@ class AppBlockerService : Service() {
     private var isRunning = false
     private var blockedApps = listOf<String>()
 
-    private val packageMap = mapOf(
-        "Google Chrome" to "com.android.chrome",
-        "TikTok" to "com.zhiliaoapp.musically",
-        "Instagram" to "com.instagram.android",
-        "YouTube" to "com.google.android.youtube",
-        "X (Twitter)" to "com.twitter.android",
-        "Reddit" to "com.reddit.frontpage",
-        "Facebook" to "com.facebook.katana",
-        "Netflix" to "com.netflix.mediaclient"
-    )
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // FIXED: We now safely receive the actual dynamic package names directly from the UI!
         val appsToBlock = intent?.getStringArrayListExtra("BLOCKED_APPS") ?: return START_NOT_STICKY
-        blockedApps = appsToBlock.mapNotNull { packageMap[it] }
+        blockedApps = appsToBlock.toList()
 
         val channelId = "ctrl_blocker"
 
@@ -43,10 +34,8 @@ class AppBlockerService : Service() {
             .build()
 
         startForeground(1, notification)
-        if (!isRunning) {
-            isRunning = true
-            startMonitoring()
-        }
+        isRunning = true
+        startMonitoring()
         return START_STICKY
     }
 
@@ -55,6 +44,8 @@ class AppBlockerService : Service() {
             override fun run() {
                 if (!isRunning) return
                 val topPackage = getTopApp()
+
+                // If the app they opened is in their dynamic blocked list, INTERCEPT!
                 if (blockedApps.contains(topPackage)) {
                     val launchIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -86,7 +77,8 @@ class AppBlockerService : Service() {
     override fun onDestroy() {
         isRunning = false
         handler.removeCallbacksAndMessages(null)
-            super.onDestroy()
+        super.onDestroy()
     }
+
     override fun onBind(intent: Intent?): IBinder? = null
 }
