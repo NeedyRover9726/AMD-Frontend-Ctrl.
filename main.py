@@ -54,7 +54,8 @@ fireworks_ef = OpenAIEmbeddingFunction(
 # Pass the custom embedding function to the collection
 collection = chroma_client.get_or_create_collection(
     name="textbook_materials",
-    embedding_function=fireworks_ef
+    embedding_function=fireworks_ef,
+    metadata={"hnsw:space": "cosine"}
 )
 
 def encode_image(file_bytes: bytes) -> str:
