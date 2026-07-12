@@ -193,10 +193,9 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
         if not title_list:
             raise HTTPException(status_code=400, detail="You must select at least one material.")
 
-        # FIX 1: Bump n_results to 25 so the LLM has enough raw text to find 25 facts
         results = collection.query(
             query_texts=[topic],
-            n_results=25, 
+            n_results=25,  # Increased so the LLM has enough text to actually hit 25 facts
             where={"title": {"$in": title_list}},
             include=["documents", "distances"] 
         )
@@ -224,8 +223,6 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
 
         context_text = "\n---\n".join(filtered_docs)
 
-        # FIX 2: We completely delete the `calculated_length` Python math here.
-        
         system_prompt = (
             "You are a strict academic instructor. Your task is to generate a multiple-choice quiz based EXCLUSIVELY on the provided Context.\n"
             "Rules:\n"
@@ -245,7 +242,7 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
             "}"
         )
         
-        # FIX 3: Update user_content to remove the math variable, relying entirely on the prompt.
+        # Removed the python math variables completely
         user_content = f"Context:\n{context_text}\n\nTask: Generate a multiple-choice quiz based on the facts available in the text regarding the topic: '{topic}'."
 
         active_text_model = SERVERLESS_TEXT if DEBUG_MODE else GEMMA_DEPLOYMENT
@@ -272,7 +269,7 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
         elif raw_output.startswith("```"):
             raw_output = raw_output.replace("```", "", 1).rstrip("```").strip()
 
-        # FIX 4: Safely extract the "quiz" array so the frontend contract isn't broken
+        # Isolating the quiz array so Kotlin doesn't crash
         full_json = json.loads(raw_output)
         
         if "quiz" not in full_json:
