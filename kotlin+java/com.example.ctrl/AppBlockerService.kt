@@ -22,7 +22,7 @@ class AppBlockerService : Service() {
     private var lastLaunchTime = 0L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val appsToBlock = intent?.getStringArrayListExtra("BLOCKED_APPS") ?: return START_NOT_STICKY
+        val appsToBlock = intent?.getStringArrayListExtra("BLOCKED_APPS") ?: SessionManager(this).blockedApps
         blockedApps = appsToBlock.toList()
 
         val channelId = "ctrl_blocker"
