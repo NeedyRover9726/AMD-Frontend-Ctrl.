@@ -4,6 +4,7 @@ import uuid
 import json
 import chromadb
 import fitz  # PyMuPDF for handling PDFs
+import openai # Added for fallback exception handling
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -16,23 +17,38 @@ load_dotenv()
 
 app = FastAPI(title="Ctrl. Backend - Gamified RAG Engine")
 
-# Pull the API key securely from the environment
+# Pull API keys securely from the environment
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not FIREWORKS_API_KEY:
     raise ValueError("FIREWORKS_API_KEY is not set. Please check your .env file.")
 
+if not GEMINI_API_KEY:
+    print("WARNING: GEMINI_API_KEY is not set. Fallback will not work.")
+
+# Primary client (Fireworks)
 client = OpenAI(
     base_url="https://api.fireworks.ai/inference/v1", 
     api_key=FIREWORKS_API_KEY
 )
 
+# Secondary client (Gemini 0-Cred Fallback)
+gemini_client = OpenAI(
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    api_key=GEMINI_API_KEY
+)
+
 DEBUG_MODE = False
 
+# Primary models
 GEMMA_DEPLOYMENT = "accounts/sergecalasara12-123/deployments/c5tpac33"
-
 SERVERLESS_VISION = "accounts/fireworks/models/qwen3p7-plus"
 SERVERLESS_TEXT = "accounts/fireworks/models/deepseek-v4-flash"
+
+# Fallback models (Gemini 1.5 Flash natively supports both text and vision)
+FALLBACK_VISION = "gemini-1.5-flash"
+FALLBACK_TEXT = "gemini-1.5-flash"
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -102,18 +118,30 @@ async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
             base64_image = encode_image(file_bytes)
             active_vision_model = SERVERLESS_VISION if DEBUG_MODE else GEMMA_DEPLOYMENT
             
-            vision_completion = client.chat.completions.create(
-                model=active_vision_model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": "Extract all academic text from this textbook page perfectly. Output only the plain text. Do not include markdown formatting."},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]
-                    }
-                ]
-            )
+            messages_payload = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Extract all academic text from this textbook page perfectly. Output only the plain text. Do not include markdown formatting."},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]
+                }
+            ]
+            
+            try:
+                # Attempt primary deployment
+                vision_completion = client.chat.completions.create(
+                    model=active_vision_model,
+                    messages=messages_payload
+                )
+            except (openai.RateLimitError, openai.APIStatusError) as e:
+                # Fallback to Gemini if out of credits (402) or rate limited (429)
+                print(f"Primary vision model failed: {e}. Falling back to free Gemini...")
+                vision_completion = gemini_client.chat.completions.create(
+                    model=FALLBACK_VISION,
+                    messages=messages_payload
+                )
+                
             extracted_text = vision_completion.choices[0].message.content
             
         elif "pdf" in content_type:
@@ -261,19 +289,31 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
             "}"
         )
         
-        # Removed the python math variables completely
         user_content = f"Context:\n{context_text}\n\nTask: Generate a multiple-choice quiz based on the facts available in the text regarding the topic: '{topic}'."
 
         active_text_model = SERVERLESS_TEXT if DEBUG_MODE else GEMMA_DEPLOYMENT
 
-        quiz_completion = client.chat.completions.create(
-            model=active_text_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            temperature=0.2 
-        )
+        try:
+            # Attempt primary deployment
+            quiz_completion = client.chat.completions.create(
+                model=active_text_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                temperature=0.2 
+            )
+        except (openai.RateLimitError, openai.APIStatusError) as e:
+            # Fallback to Gemini if out of credits (402) or rate limited (429)
+            print(f"Primary text model failed: {e}. Falling back to free Gemini...")
+            quiz_completion = gemini_client.chat.completions.create(
+                model=FALLBACK_TEXT,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content}
+                ],
+                temperature=0.2 
+            )
         
         raw_output = quiz_completion.choices[0].message.content.strip()
         
