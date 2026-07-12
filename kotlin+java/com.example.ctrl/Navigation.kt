@@ -40,6 +40,10 @@ fun CtrlApp(
     val coroutineScope = rememberCoroutineScope()
     val sessionManager = remember { SessionManager(context) }
 
+    // FIXED: Track exactly which screen the user is on
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
     var isSessionActive by remember { mutableStateOf(sessionManager.isSessionActive) }
     var isBreakMode by remember { mutableStateOf(sessionManager.isBreakMode) }
     var studyMinutes by remember { mutableIntStateOf(sessionManager.studyMinutes) }
@@ -59,6 +63,16 @@ fun CtrlApp(
     var isUploading by remember { mutableStateOf(false) }
 
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
+
+    // FIXED: Protects the UI from being interrupted if the user is busy in the intervention flow
+    LaunchedEffect(currentRoute) {
+        val isProtectedScreen = currentRoute in listOf("intercept_input", "quiz", "end_session_confirm", "unlock")
+        val protectIntent = Intent(context, AppBlockerService::class.java).apply {
+            action = AppBlockerService.ACTION_PROTECT_UI
+            putExtra(AppBlockerService.EXTRA_PROTECTED_STATE, isProtectedScreen)
+        }
+        context.startService(protectIntent)
+    }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -185,7 +199,6 @@ fun CtrlApp(
                     coroutineScope.launch {
                         isUploading = true
                         try {
-                            // FIXED: Dynamically detects if it is a PDF or an Image to pass to the Backend Vision model
                             val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
 
                             val requestBody = object : RequestBody() {
@@ -300,7 +313,7 @@ fun CtrlApp(
                             appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
                         }
                         if (mode != AppOpsManager.MODE_ALLOWED) {
-                            Toast.makeText(context, "Please ALLOW 'Usage Access' so Ctrl can detect when you open an app.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, "Please ALLOW 'Usage Access' so Ctrl. can detect when you open an app.", Toast.LENGTH_LONG).show()
                             context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                         } else {
                             isSessionActive = true
@@ -353,22 +366,6 @@ fun CtrlApp(
             )
         }
         composable("intercept_input") {
-            // LOCKDOWN: Prevent background service from ripping the user away while they set up their quiz
-            DisposableEffect(Unit) {
-                val lockIntent = Intent(context, AppBlockerService::class.java).apply {
-                    action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
-                    putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, true)
-                }
-                context.startService(lockIntent)
-                onDispose {
-                    val unlockIntent = Intent(context, AppBlockerService::class.java).apply {
-                        action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
-                        putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, false)
-                    }
-                    context.startService(unlockIntent)
-                }
-            }
-
             InterceptInputScreen(
                 fileName = selectedFileName,
                 onGenerateQuiz = { topic, type ->
