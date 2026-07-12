@@ -37,19 +37,17 @@ fun CtrlApp(
     var isSessionActive by remember { mutableStateOf(sessionManager.isSessionActive) }
     var studyMinutes by remember { mutableIntStateOf(sessionManager.studyMinutes) }
     var breakMinutes by remember { mutableIntStateOf(sessionManager.breakMinutes) }
-
     var elapsedMinutes by remember { mutableFloatStateOf(sessionManager.elapsedMinutes) }
 
     var selectedFileName by remember { mutableStateOf(sessionManager.selectedFileName) }
     var selectedFileUri by remember { mutableStateOf(sessionManager.selectedFileUri) }
+    
     var readingProgress by remember { mutableFloatStateOf(0.0f) }
     var isReadingStarted by remember { mutableStateOf(false) }
     var quizTopic by remember { mutableStateOf("") }
-    var quizType by remember { mutableStateOf("Quizzes") }
+    var quizType by remember { mutableStateOf("Multiple Choice") }
 
-    val blockedAppsList = remember { 
-        mutableStateListOf<String>().apply { addAll(sessionManager.blockedApps) } 
-    }
+    val blockedAppsList = remember { mutableStateListOf<String>().apply { addAll(sessionManager.blockedApps) } }
     val uploadedMaterials = remember { mutableStateListOf<StudyMaterial>() }
     var isUploading by remember { mutableStateOf(false) }
 
@@ -168,7 +166,7 @@ fun CtrlApp(
                                 override fun contentType(): MediaType? = MediaType.parse("application/pdf")
                                 override fun writeTo(sink: BufferedSink) {
                                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                                        val buffer = ByteArray(8192)
+                                        val buffer = ByteArray(8192) // Stream 8KB chunks
                                         var bytesRead: Int
                                         while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                                             sink.write(buffer, 0, bytesRead)
@@ -176,7 +174,7 @@ fun CtrlApp(
                                     }
                                 }
                             }
-
+                            
                             val filePart = MultipartBody.Part.createFormData("file", name, requestBody)
                             val titlePart = RequestBody.create(MediaType.parse("text/plain"), name)
 
@@ -206,8 +204,9 @@ fun CtrlApp(
                                     }
                                 }
                             }
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
                             Toast.makeText(context, "Upload Failed. Check internet connection.", Toast.LENGTH_SHORT).show()
+                            Log.e("Upload", "Failed to upload document", e)
                         } finally {
                             isUploading = false
                         }
@@ -216,36 +215,21 @@ fun CtrlApp(
             )
         }
         composable("create_step_1") {
-            CreateSessionStep1(onNext = { minutes -> 
-                studyMinutes = minutes
-                sessionManager.studyMinutes = minutes
-                navController.navigate("create_step_2") 
-            }, onBack = { navController.popBackStack() })
+            CreateSessionStep1(onNext = { minutes -> studyMinutes = minutes; navController.navigate("create_step_2") }, onBack = { navController.popBackStack() })
         }
         composable("create_step_2") {
-            CreateSessionStep2(studyTimeMins = studyMinutes, onNext = { minutes -> 
-                breakMinutes = minutes
-                sessionManager.breakMinutes = minutes
-                navController.navigate("create_step_3") 
-            }, onBack = { navController.popBackStack() })
+            CreateSessionStep2(studyTimeMins = studyMinutes, onNext = { minutes -> breakMinutes = minutes; navController.navigate("create_step_3") }, onBack = { navController.popBackStack() })
         }
         composable("create_step_3") {
             CreateSessionStep3(
                 uploadedMaterials = uploadedMaterials,
                 currentFileName = selectedFileName,
-                onFileSelected = { fileName, uri -> 
-                    selectedFileName = fileName
-                    selectedFileUri = uri
-                    sessionManager.selectedFileName = fileName
-                    sessionManager.selectedFileUri = uri
-                },
+                onFileSelected = { fileName, uri -> selectedFileName = fileName; selectedFileUri = uri },
                 onDeleteMaterial = { material ->
                     uploadedMaterials.remove(material)
                     if (selectedFileName == material.name) {
                         selectedFileName = ""
                         selectedFileUri = null
-                        sessionManager.selectedFileName = ""
-                        sessionManager.selectedFileUri = null
                     }
                 },
                 onNext = { navController.navigate("create_step_4") },
@@ -253,10 +237,7 @@ fun CtrlApp(
             )
         }
         composable("create_step_4") {
-            CreateSessionStep4(globalBlockedApps = blockedAppsList, installedApps = installedApps, onNext = { 
-                sessionManager.blockedApps = blockedAppsList
-                navController.navigate("session_overview") 
-            }, onBack = { navController.popBackStack() })
+            CreateSessionStep4(globalBlockedApps = blockedAppsList, installedApps = installedApps, onNext = { navController.navigate("session_overview") }, onBack = { navController.popBackStack() })
         }
         composable("session_overview") {
             SessionOverviewScreen(
@@ -264,7 +245,7 @@ fun CtrlApp(
                 onStartSession = {
                     if (!Settings.canDrawOverlays(context)) {
                         Toast.makeText(context, "Please ALLOW 'Display over other apps' to enable the App Blocker", Toast.LENGTH_LONG).show()
-                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
                         context.startActivity(intent)
                     } else {
                         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -283,8 +264,14 @@ fun CtrlApp(
                             readingProgress = 0.0f
                             isReadingStarted = false
                             
+                            // Save to SessionManager
                             sessionManager.isSessionActive = true
+                            sessionManager.studyMinutes = studyMinutes
+                            sessionManager.breakMinutes = breakMinutes
                             sessionManager.elapsedMinutes = 0f
+                            sessionManager.selectedFileName = selectedFileName
+                            sessionManager.selectedFileUri = selectedFileUri
+                            sessionManager.blockedApps = blockedAppsList.toList()
 
                             val serviceIntent = Intent(context, AppBlockerService::class.java).apply {
                                 putStringArrayListExtra("BLOCKED_APPS", ArrayList(blockedAppsList))
@@ -310,7 +297,6 @@ fun CtrlApp(
         composable("intercept_input") {
             InterceptInputScreen(
                 fileName = selectedFileName,
-                // Pass both parameters now!
                 onGenerateQuiz = { topic, type ->
                     quizTopic = topic
                     quizType = type
@@ -333,7 +319,14 @@ fun CtrlApp(
                     selectedFileUri = null
                     quizTopic = ""
                     
-                    sessionManager.clearSession()
+                    // Clear persistent session
+                    sessionManager.isSessionActive = false
+                    sessionManager.studyMinutes = 0
+                    sessionManager.breakMinutes = 0
+                    sessionManager.elapsedMinutes = 0f
+                    sessionManager.selectedFileName = ""
+                    sessionManager.selectedFileUri = null
+                    sessionManager.blockedApps = emptyList()
 
                     context.stopService(Intent(context, AppBlockerService::class.java))
                     navController.navigate("unlock") { popUpTo(0) }
