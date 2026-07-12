@@ -28,14 +28,14 @@ docker run -p 8000:8000 \
   ctrl-backend
 ```
 
-🖥️ AMD Hardware Proof (/proof directory)
+##🖥️ AMD Hardware Proof (/proof directory)
 Check the proof/ folder for objective evidence of our AMD Developer Cloud usage:
 
 hardware_proof.log: Raw rocm-smi output validating AMD Instinct MI300X (gfx942) usage.
 
 cleaned_app_behavior.log: Verifiable success paths for core inference endpoints.
 
-🧠 Key Features
+##🧠 Key Features
 Multimodal Ingestion: Parses PDFs and physical photos via Gemma 4 26B MOE vision capabilities.
 
 Optimized RAG: LangChain chunking + Fireworks AI (nomic-embed-text-v1.5) + Local ChromaDB.
