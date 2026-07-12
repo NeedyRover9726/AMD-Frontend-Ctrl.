@@ -1,5 +1,45 @@
-Ctrl. - Backend (FastAPI / RAG Engine)Live API URL: https://ctrl-uam1.onrender.com/OverviewThis repository houses the RAG-powered backend for Ctrl., a fully Dockerized Python FastAPI web service responsible for parsing multimodal study materials and generating dynamic micro-quizzes.Engineered to be hardware-agile, the backend was initially prototyped on bare-metal AMD Instinct MI300X GPUs and later optimized for a continuous, serverless production environment on Render using Fireworks AI.Running the Backend1. Connecting to the Live Server (Primary Method)The easiest way to interact with the Ctrl. backend is to use the live production server hosted on Render.Base URL: https://ctrl-uam1.onrender.com/API Documentation (Swagger UI): https://ctrl-uam1.onrender.com/docs⚠️ Note on Cold Starts (Scale-to-Zero): To maintain a sustainable, 24/7 MVP without burning through cloud credits, our Render deployment and serverless Fireworks AI endpoints are configured to scale to zero during inactivity. If the service has been idle, the very first photo parsing or quiz generation request may take a few moments to complete as the container and the Gemma model "wake up." Once active, all subsequent requests will process at normal ultra-low latency.You can point your frontend or make API requests directly to this URL without any local setup.2. Local Development (Docker)While the app is actively hosted on Render, you can easily build and run the backend locally using Docker.Clone the repository:git clone [https://github.com/yourusername/ctrl-backend.git](https://github.com/yourusername/ctrl-backend.git)
-cd ctrl-backend
-Build the image:docker build -t ctrl-backend .
-Run the container (replace your_key_here with a valid Fireworks API Key):docker run -p 8000:8000 --env FIREWORKS_API_KEY=your_key_here ctrl-backend
-The local API will be available at http://localhost:8000, and local docs at http://localhost:8000/docs.Key FeaturesMultimodal Data Ingestion: Parses digital PDF text layers and digitizes physical textbook photos utilizing Gemma 4 26B MOE vision capabilities.Optimized Vectorization: Uses LangChain's RecursiveCharacterTextSplitter with dynamic source title prepending. Embeddings generated via Fireworks AI's nomic-embed-text-v1.5.Persistent Vector Store: Local ChromaDB integration with strict semantic distance filtering to eliminate hallucinations."Fact-Scratchpad" Generation: Instructs the LLM to isolate distinct facts before mapping them to JSON-formatted multiple-choice questions.Mobile-Safe Outputs: Proactively strips markdown formatting, returning pure JSON arrays.Infrastructure History & AMD IntegrationInitial development and architecture validation were conducted on the AMD Developer Cloud utilizing a dedicated AMD Instinct MI300X GPU droplet. This hardware-accelerated ROCm infrastructure was critical for testing our initial local embedding models (all-MiniLM-L6-v2). (Objective evidence, including telemetry, is located in the /proof directory).To achieve a sustainable 24/7 production environment, the system was strategically migrated to serverless APIs, allowing us to bypass the CPU and memory limits of free-tier cloud hosting while maintaining ultra-low latency.Core EndpointsPOST /upload-material/: Accepts PDFs or images. Extracts text, chunks it, generates embeddings, and stores them in ChromaDB.POST /generate-quiz/: Accepts a session ID. Retrieves relevant chunks, applies distance filtering, and returns a JSON array of generated micro-quizzes.
+## Ctrl. - Backend (FastAPI / RAG Engine)
+
+**Live API:** [ctrl-uam1.onrender.com](https://ctrl-uam1.onrender.com/) | **Docs:** [Swagger UI](https://ctrl-uam1.onrender.com/docs)
+
+---
+
+### 📖 Overview
+
+A Dockerized Python FastAPI web service powering **Ctrl.** Parses multimodal study materials and generates dynamic micro-quizzes using RAG. Initially prototyped on bare-metal AMD Instinct MI300X GPUs, it is now optimized for a serverless 24/7 production environment on Render using Fireworks AI.
+
+### 🚀 Quick Start
+
+**1. Live Server (Demo)**
+Use the Live API URL above.
+
+> ⚠️ **Cold Starts:** To save costs, the server scales to zero during inactivity. Expect a brief delay on your first request.
+> ⚠️ **Credit Limits:** Because this live environment is left open, we may occasionally run out of API credits. **For uninterrupted use, we highly recommend running it locally or from your frontend using your own API key.**
+
+**2. Local Docker (Recommended)**
+
+```bash
+git clone https://github.com/yourusername/ctrl-backend.git && cd ctrl-backend
+docker build -t ctrl-backend .
+# Run with your own API key to bypass live server credit limits
+docker run -p 8000:8000 --env FIREWORKS_API_KEY=your_key_here ctrl-backend
+
+```
+
+### 🖥️ AMD Hardware Proof (`/proof` directory)
+
+Check the `proof/` folder for objective evidence of our AMD Developer Cloud usage:
+
+* `hardware_proof.log`: Raw `rocm-smi` output validating AMD Instinct MI300X (gfx942) usage.
+* `cleaned_app_behavior.log`: Verifiable success paths for core inference endpoints.
+
+### 🧠 Key Features
+
+* **Multimodal Ingestion:** Parses PDFs and physical photos via Gemma 4 26B MOE vision capabilities [1.1.3].
+* **Optimized RAG:** LangChain chunking + Fireworks AI (`nomic-embed-text-v1.5`) + Local ChromaDB.
+* **Mobile-Safe Output:** Generates "Fact-Scratchpads" mapped to clean, markdown-stripped JSON arrays.
+
+### 📡 Core Endpoints
+
+* **`POST /upload-material/`**: Ingests PDFs/images, generates embeddings, and stores them in ChromaDB.
+* **`POST /generate-quiz/`**: Retrieves relevant chunks and returns a pure JSON array of multiple-choice quizzes.
