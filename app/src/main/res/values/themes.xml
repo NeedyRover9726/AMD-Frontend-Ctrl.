@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.Ctrl" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/bg_midnight</item>
-        <item name="android:statusBarColor">@color/bg_midnight</item>
-    </style>
-</resources>
