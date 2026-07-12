@@ -5,6 +5,15 @@ chroma_db/
 # Ignore environments and caches
 __pycache__/
 *.pyc
+*.py[cod]
+*$py.class
 .env
 venv/
 .venv/
+
+# Ignore source control and system clutter
+.git
+.gitignore
+.DS_Store
+.vscode/
+.idea/
