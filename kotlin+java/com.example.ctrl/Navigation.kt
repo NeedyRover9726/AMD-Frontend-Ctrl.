@@ -101,8 +101,6 @@ fun CtrlApp(
         installedApps = appList.sortedBy { it.name }
     }
 
-    // FIXED: The UI now safely polls the SessionManager every second.
-    // The actual background timer is running perfectly in AppBlockerService!
     LaunchedEffect(isSessionActive) {
         if (isSessionActive) {
             while (true) {
@@ -187,8 +185,11 @@ fun CtrlApp(
                     coroutineScope.launch {
                         isUploading = true
                         try {
+                            // FIXED: Dynamically detects if it is a PDF or an Image to pass to the Backend Vision model
+                            val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+
                             val requestBody = object : RequestBody() {
-                                override fun contentType(): MediaType? = MediaType.parse("application/pdf")
+                                override fun contentType(): MediaType? = MediaType.parse(mimeType)
                                 override fun writeTo(sink: BufferedSink) {
                                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
                                         val buffer = ByteArray(8192)
@@ -262,6 +263,15 @@ fun CtrlApp(
                     selectedFileUri = uri
                     sessionManager.selectedFileName = fileName
                     sessionManager.selectedFileUri = uri
+                },
+                onDeleteMaterial = { material ->
+                    uploadedMaterials.remove(material)
+                    if (selectedFileName == material.name) {
+                        selectedFileName = ""
+                        selectedFileUri = null
+                        sessionManager.selectedFileName = ""
+                        sessionManager.selectedFileUri = null
+                    }
                 },
                 onNext = { navController.navigate("create_step_4") },
                 onBack = { navController.popBackStack() }
@@ -343,6 +353,22 @@ fun CtrlApp(
             )
         }
         composable("intercept_input") {
+            // LOCKDOWN: Prevent background service from ripping the user away while they set up their quiz
+            DisposableEffect(Unit) {
+                val lockIntent = Intent(context, AppBlockerService::class.java).apply {
+                    action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
+                    putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, true)
+                }
+                context.startService(lockIntent)
+                onDispose {
+                    val unlockIntent = Intent(context, AppBlockerService::class.java).apply {
+                        action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
+                        putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, false)
+                    }
+                    context.startService(unlockIntent)
+                }
+            }
+
             InterceptInputScreen(
                 fileName = selectedFileName,
                 onGenerateQuiz = { topic, type ->
