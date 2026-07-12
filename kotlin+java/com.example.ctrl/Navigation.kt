@@ -9,15 +9,16 @@ import android.net.Uri
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
-import androidx.core.net.toUri
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.net.toUri
 import androidx.navigation.compose.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.MediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
+import okio.BufferedSink
 import kotlin.time.Duration.Companion.seconds
 
 data class AppInfo(val name: String, val packageName: String)
@@ -31,21 +32,24 @@ fun CtrlApp(
     val navController = rememberNavController()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val sessionManager = remember { SessionManager(context) }
 
-    var isSessionActive by remember { mutableStateOf(false) }
-    var studyMinutes by remember { mutableIntStateOf(0) }
-    var breakMinutes by remember { mutableIntStateOf(0) }
+    var isSessionActive by remember { mutableStateOf(sessionManager.isSessionActive) }
+    var studyMinutes by remember { mutableIntStateOf(sessionManager.studyMinutes) }
+    var breakMinutes by remember { mutableIntStateOf(sessionManager.breakMinutes) }
 
-    // FIXED: Hoisted elapsedMinutes so the progress bar survives screen navigations!
-    var elapsedMinutes by remember { mutableFloatStateOf(0f) }
+    var elapsedMinutes by remember { mutableFloatStateOf(sessionManager.elapsedMinutes) }
 
-    var selectedFileName by remember { mutableStateOf("") }
-    var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedFileName by remember { mutableStateOf(sessionManager.selectedFileName) }
+    var selectedFileUri by remember { mutableStateOf(sessionManager.selectedFileUri) }
     var readingProgress by remember { mutableFloatStateOf(0.0f) }
     var isReadingStarted by remember { mutableStateOf(false) }
     var quizTopic by remember { mutableStateOf("") }
+    var quizType by remember { mutableStateOf("Quizzes") }
 
-    val blockedAppsList = remember { mutableStateListOf<String>() }
+    val blockedAppsList = remember { 
+        mutableStateListOf<String>().apply { addAll(sessionManager.blockedApps) } 
+    }
     val uploadedMaterials = remember { mutableStateListOf<StudyMaterial>() }
     var isUploading by remember { mutableStateOf(false) }
 
@@ -66,10 +70,9 @@ fun CtrlApp(
         val pm = context.packageManager
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         val appList = mutableListOf<AppInfo>()
-        val myPackage = context.packageName // We will filter this out!
+        val myPackage = context.packageName
 
         for (packageInfo in packages) {
-            // FIXED: Do not include the Ctrl app itself in the blocker list
             if (packageInfo.packageName != myPackage && ((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome"))) {
                 val appName = pm.getApplicationLabel(packageInfo).toString()
                 appList.add(AppInfo(appName, packageInfo.packageName))
@@ -78,12 +81,12 @@ fun CtrlApp(
         installedApps = appList.sortedBy { it.name }
     }
 
-    // FIXED: Accurate timer loop for the progress bar
     LaunchedEffect(isSessionActive) {
         if (isSessionActive && studyMinutes > 0) {
             while (elapsedMinutes < studyMinutes) {
                 delay(60.seconds)
                 elapsedMinutes += 1f
+                sessionManager.elapsedMinutes = elapsedMinutes
             }
         }
     }
@@ -160,38 +163,46 @@ fun CtrlApp(
                     coroutineScope.launch {
                         isUploading = true
                         try {
-                            val inputStream = context.contentResolver.openInputStream(uri)
-                            val bytes = inputStream?.use { it.readBytes() }
-
-                            if (bytes != null) {
-                                val requestBody = RequestBody.create(MediaType.parse("application/pdf"), bytes)
-                                val filePart = MultipartBody.Part.createFormData("file", name, requestBody)
-                                val titlePart = RequestBody.create(MediaType.parse("text/plain"), name)
-
-                                val response = RetrofitClient.apiService.uploadMaterial(titlePart, filePart)
-
-                                if (response.status == "processing" || response.status == "success") {
-                                    Toast.makeText(context,"Document processing in background! Please wait 5-10s.", Toast.LENGTH_LONG).show()
-
-                                    val existingIndex = uploadedMaterials.indexOfFirst { it.name == name }
-                                    if (existingIndex != -1) {
-                                        uploadedMaterials[existingIndex] = StudyMaterial(name, uri)
-                                    } else {
-                                        uploadedMaterials.add(StudyMaterial(name, uri))
-                                    }
-
-                                    launch {
-                                        delay(6.seconds)
-                                        try {
-                                            val materialsResponse = RetrofitClient.apiService.getMaterials()
-                                            materialsResponse.savedMaterials.forEach { serverName ->
-                                                if (uploadedMaterials.none { it.name == serverName }) {
-                                                    uploadedMaterials.add(StudyMaterial(serverName, Uri.EMPTY))
-                                                }
-                                            }
-                                        } catch (e: Exception) {
-                                            Log.e("Upload", "Delayed fetch failed", e)
+                            // FIXED: Streaming RequestBody prevents physical device OutOfMemory crashes on large PDFs!
+                            val requestBody = object : RequestBody() {
+                                override fun contentType(): MediaType? = MediaType.parse("application/pdf")
+                                override fun writeTo(sink: BufferedSink) {
+                                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                        val buffer = ByteArray(8192)
+                                        var bytesRead: Int
+                                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                            sink.write(buffer, 0, bytesRead)
                                         }
+                                    }
+                                }
+                            }
+
+                            val filePart = MultipartBody.Part.createFormData("file", name, requestBody)
+                            val titlePart = RequestBody.create(MediaType.parse("text/plain"), name)
+
+                            val response = RetrofitClient.apiService.uploadMaterial(titlePart, filePart)
+
+                            if (response.status == "processing" || response.status == "success") {
+                                Toast.makeText(context,"Document processing in background! Please wait 5-10s.", Toast.LENGTH_LONG).show()
+
+                                val existingIndex = uploadedMaterials.indexOfFirst { it.name == name }
+                                if (existingIndex != -1) {
+                                    uploadedMaterials[existingIndex] = StudyMaterial(name, uri)
+                                } else {
+                                    uploadedMaterials.add(StudyMaterial(name, uri))
+                                }
+
+                                launch {
+                                    delay(6.seconds)
+                                    try {
+                                        val materialsResponse = RetrofitClient.apiService.getMaterials()
+                                        materialsResponse.savedMaterials.forEach { serverName ->
+                                            if (uploadedMaterials.none { it.name == serverName }) {
+                                                uploadedMaterials.add(StudyMaterial(serverName, Uri.EMPTY))
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("Upload", "Delayed fetch failed", e)
                                     }
                                 }
                             }
@@ -205,21 +216,36 @@ fun CtrlApp(
             )
         }
         composable("create_step_1") {
-            CreateSessionStep1(onNext = { minutes -> studyMinutes = minutes; navController.navigate("create_step_2") }, onBack = { navController.popBackStack() })
+            CreateSessionStep1(onNext = { minutes -> 
+                studyMinutes = minutes
+                sessionManager.studyMinutes = minutes
+                navController.navigate("create_step_2") 
+            }, onBack = { navController.popBackStack() })
         }
         composable("create_step_2") {
-            CreateSessionStep2(studyTimeMins = studyMinutes, onNext = { minutes -> breakMinutes = minutes; navController.navigate("create_step_3") }, onBack = { navController.popBackStack() })
+            CreateSessionStep2(studyTimeMins = studyMinutes, onNext = { minutes -> 
+                breakMinutes = minutes
+                sessionManager.breakMinutes = minutes
+                navController.navigate("create_step_3") 
+            }, onBack = { navController.popBackStack() })
         }
         composable("create_step_3") {
             CreateSessionStep3(
                 uploadedMaterials = uploadedMaterials,
                 currentFileName = selectedFileName,
-                onFileSelected = { fileName, uri -> selectedFileName = fileName; selectedFileUri = uri },
+                onFileSelected = { fileName, uri -> 
+                    selectedFileName = fileName
+                    selectedFileUri = uri
+                    sessionManager.selectedFileName = fileName
+                    sessionManager.selectedFileUri = uri
+                },
                 onDeleteMaterial = { material ->
                     uploadedMaterials.remove(material)
                     if (selectedFileName == material.name) {
                         selectedFileName = ""
                         selectedFileUri = null
+                        sessionManager.selectedFileName = ""
+                        sessionManager.selectedFileUri = null
                     }
                 },
                 onNext = { navController.navigate("create_step_4") },
@@ -227,7 +253,10 @@ fun CtrlApp(
             )
         }
         composable("create_step_4") {
-            CreateSessionStep4(globalBlockedApps = blockedAppsList, installedApps = installedApps, onNext = { navController.navigate("session_overview") }, onBack = { navController.popBackStack() })
+            CreateSessionStep4(globalBlockedApps = blockedAppsList, installedApps = installedApps, onNext = { 
+                sessionManager.blockedApps = blockedAppsList
+                navController.navigate("session_overview") 
+            }, onBack = { navController.popBackStack() })
         }
         composable("session_overview") {
             SessionOverviewScreen(
@@ -250,9 +279,13 @@ fun CtrlApp(
                             context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                         } else {
                             isSessionActive = true
-                            elapsedMinutes = 0f // Reset time explicitly!
+                            elapsedMinutes = 0f
                             readingProgress = 0.0f
                             isReadingStarted = false
+                            
+                            sessionManager.isSessionActive = true
+                            sessionManager.elapsedMinutes = 0f
+
                             val serviceIntent = Intent(context, AppBlockerService::class.java).apply {
                                 putStringArrayListExtra("BLOCKED_APPS", ArrayList(blockedAppsList))
                             }
@@ -270,7 +303,6 @@ fun CtrlApp(
         composable("end_session_confirm") {
             EndSessionScreen(
                 minutesLeft = (studyMinutes - elapsedMinutes.toInt()).coerceAtLeast(0),
-                // FIXED: If they cancel, they must tell the app what they read, then take the quiz
                 onConfirm = { navController.navigate("intercept_input") },
                 onCancel = { navController.popBackStack() }
             )
@@ -278,8 +310,10 @@ fun CtrlApp(
         composable("intercept_input") {
             InterceptInputScreen(
                 fileName = selectedFileName,
-                onGenerateQuiz = { topic ->
+                // Pass both parameters now!
+                onGenerateQuiz = { topic, type ->
                     quizTopic = topic
+                    quizType = type
                     navController.navigate("quiz")
                 },
                 onBackToStudy = { navController.navigate("home") { popUpTo(0) } }
@@ -298,6 +332,9 @@ fun CtrlApp(
                     selectedFileName = ""
                     selectedFileUri = null
                     quizTopic = ""
+                    
+                    sessionManager.clearSession()
+
                     context.stopService(Intent(context, AppBlockerService::class.java))
                     navController.navigate("unlock") { popUpTo(0) }
                 },
