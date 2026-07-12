@@ -93,11 +93,11 @@ fun HomeScreen(
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-
+                
                 if (cursor.moveToFirst() && nameIndex != -1) {
                     val name = cursor.getString(nameIndex)
-                    // FIXED: 500 MB Size Limiter
-                    val size = if (sizeIndex != -1) cursor.getLong(sizeIndex) else 0L
+                    // FIXED: 500 MB Size Limiter Check
+                    val size = if (sizeIndex != -1 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else 0L
                     if (size > 500 * 1024 * 1024) {
                         Toast.makeText(context, "File exceeds 500MB limit. Please upload a smaller file.", Toast.LENGTH_LONG).show()
                     } else {
@@ -308,7 +308,6 @@ fun HomeScreen(
     }
 }
 
-// ... (Dashboard & EndSession screens remain identical)
 @Composable
 fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: Int, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
@@ -412,7 +411,7 @@ fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Un
     }
 }
 
-// ... (Setup screens 1-4 remain identical)
+// --- SETUP SCREENS ---
 @Composable
 fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
     var selected by remember { mutableStateOf("60m") }
@@ -809,7 +808,7 @@ fun Chip(text: String, isSelected: Boolean = false, onClick: () -> Unit) {
     val bgColor = if (isSelected) BtnElectricPurple.copy(alpha = 0.2f) else CardDarkPurple
     val borderColor = if (isSelected) BtnElectricPurple else BorderMutedViolet
     val textColor = if (isSelected) TextWhite else TextMutedLilac
-
+    
     Box(modifier = Modifier.clickable { onClick() }.border(1.dp, borderColor, RoundedCornerShape(50)).background(bgColor, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(text, color = textColor, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
     }
@@ -847,13 +846,13 @@ fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 @Composable
 fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> Unit, onBackToStudy: () -> Unit) {
     var inputText by remember { mutableStateOf("") }
-    // FIXED: Added Test Type State
+    // FIXED: Test Type UI hook
     var selectedTestType by remember { mutableStateOf("Multiple Choice") }
-
+    
     var showValidationError by remember { mutableStateOf(false) }
     var showEscapeWarning by remember { mutableStateOf(false) }
-
-    // FIXED: Intercept screen now scrolls to accommodate the test type selector on smaller devices
+    
+    // FIXED: Added Scrollbar to Intercept Input Screen
     val scrollState = rememberScrollState()
 
     BackHandler { showEscapeWarning = true }
@@ -863,7 +862,7 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> U
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp),
+        modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp), 
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
@@ -908,7 +907,7 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> U
             Chip("Ch. 3-4", false) { inputText = "Ch. 3-4"; showValidationError = false }
         }
 
-        // FIXED: Test Format Selector
+        // FIXED: Test Format Selector connected to the backend
         Spacer(modifier = Modifier.height(32.dp))
         Text("SELECT TEST FORMAT", color = TextDarkGrayPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
         Spacer(modifier = Modifier.height(12.dp))
@@ -1000,17 +999,17 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
     BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
 
     if (showEscapeWarning) {
-        CancelQuizWarningDialog(onConfirm = {
+        CancelQuizWarningDialog(onConfirm = { 
             isExiting = true
-            onFailReturn()
+            onFailReturn() 
         }, onDismiss = { showEscapeWarning = false })
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
+        val observer = LifecycleEventObserver { _, event -> 
             if (event == Lifecycle.Event.ON_PAUSE && quizState == QuizState.ACTIVE && !isExiting) {
-                showCheatWarning = true
+                showCheatWarning = true 
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
