@@ -1,8 +1,9 @@
 fastapi
 uvicorn
-PyMuPDF
-openai
-chromadb
-langchain-text-splitters
-python-dotenv
 python-multipart
+pymupdf
+chromadb
+openai
+python-dotenv
+langchain-text-splitters
+pydantic
