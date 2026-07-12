@@ -92,8 +92,17 @@ fun HomeScreen(
         if (uri != null) {
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+
                 if (cursor.moveToFirst() && nameIndex != -1) {
-                    onMaterialUploaded(cursor.getString(nameIndex), uri)
+                    val name = cursor.getString(nameIndex)
+                    // FIXED: 500 MB Size Limiter
+                    val size = if (sizeIndex != -1) cursor.getLong(sizeIndex) else 0L
+                    if (size > 500 * 1024 * 1024) {
+                        Toast.makeText(context, "File exceeds 500MB limit. Please upload a smaller file.", Toast.LENGTH_LONG).show()
+                    } else {
+                        onMaterialUploaded(name, uri)
+                    }
                 }
             }
         }
@@ -104,15 +113,12 @@ fun HomeScreen(
     } else 0f
 
     val remainingMins = (studyTimeMins - elapsedMinutes.toInt()).coerceAtLeast(0)
-
     val scrollState = rememberScrollState()
 
-    // 3-Dot Menu & Delete State
     var showMenu by remember { mutableStateOf(false) }
     var isDeleteMode by remember { mutableStateOf(false) }
     var materialToDelete by remember { mutableStateOf<StudyMaterial?>(null) }
 
-    // Warning Dialog for explicit deletion
     if (materialToDelete != null) {
         AlertDialog(
             onDismissRequest = { materialToDelete = null },
@@ -292,7 +298,6 @@ fun HomeScreen(
                     if (blockedApps.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         blockedApps.forEach { pkg ->
-                            // FIXED: Translate package name back to the App Name
                             val appName = installedApps.find { it.packageName == pkg }?.name ?: pkg
                             Text("• $appName", color = TextMutedLilac, fontSize = 14.sp, modifier = Modifier.padding(start = 40.dp, bottom = 4.dp))
                         }
@@ -303,7 +308,7 @@ fun HomeScreen(
     }
 }
 
-// --- 2. SESSION DASHBOARD ---
+// ... (Dashboard & EndSession screens remain identical)
 @Composable
 fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: Int, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
@@ -383,7 +388,6 @@ fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: I
     }
 }
 
-// --- NEW: END SESSION SCREEN ---
 @Composable
 fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2A0D14), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -408,7 +412,7 @@ fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Un
     }
 }
 
-// --- 6. SETUP FLOW SCREENS ---
+// ... (Setup screens 1-4 remain identical)
 @Composable
 fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
     var selected by remember { mutableStateOf("60m") }
@@ -801,9 +805,13 @@ fun OptionCard(title: String, subtitle: String, isSelected: Boolean, onClick: ()
 }
 
 @Composable
-fun Chip(text: String, onClick: () -> Unit) {
-    Box(modifier = Modifier.clickable { onClick() }.border(1.dp, BorderMutedViolet, RoundedCornerShape(50)).background(CardDarkPurple, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(text, color = TextMutedLilac, fontSize = 12.sp)
+fun Chip(text: String, isSelected: Boolean = false, onClick: () -> Unit) {
+    val bgColor = if (isSelected) BtnElectricPurple.copy(alpha = 0.2f) else CardDarkPurple
+    val borderColor = if (isSelected) BtnElectricPurple else BorderMutedViolet
+    val textColor = if (isSelected) TextWhite else TextMutedLilac
+
+    Box(modifier = Modifier.clickable { onClick() }.border(1.dp, borderColor, RoundedCornerShape(50)).background(bgColor, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(text, color = textColor, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
     }
 }
 
@@ -815,7 +823,6 @@ fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = thi
     )
 }
 
-// --- REUSABLE WARNING DIALOG ---
 @Composable
 fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
@@ -836,13 +843,18 @@ fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     )
 }
 
-
 // --- 3. INTERCEPT INPUT SCREEN ---
 @Composable
-fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit, onBackToStudy: () -> Unit) {
+fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> Unit, onBackToStudy: () -> Unit) {
     var inputText by remember { mutableStateOf("") }
+    // FIXED: Added Test Type State
+    var selectedTestType by remember { mutableStateOf("Multiple Choice") }
+
     var showValidationError by remember { mutableStateOf(false) }
     var showEscapeWarning by remember { mutableStateOf(false) }
+
+    // FIXED: Intercept screen now scrolls to accommodate the test type selector on smaller devices
+    val scrollState = rememberScrollState()
 
     BackHandler { showEscapeWarning = true }
 
@@ -850,7 +862,10 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit, onB
         CancelQuizWarningDialog(onConfirm = onBackToStudy, onDismiss = { showEscapeWarning = false })
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
 
         Text("Ctrl.", color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
 
@@ -888,17 +903,28 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit, onB
 
         Spacer(modifier = Modifier.height(16.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("Chapter 3") { inputText = "Chapter 3"; showValidationError = false }
-            Chip("Pages 42-58") { inputText = "Pages 42-58"; showValidationError = false }
-            Chip("Ch. 3-4") { inputText = "Ch. 3-4"; showValidationError = false }
+            Chip("Chapter 3", false) { inputText = "Chapter 3"; showValidationError = false }
+            Chip("Pages 42-58", false) { inputText = "Pages 42-58"; showValidationError = false }
+            Chip("Ch. 3-4", false) { inputText = "Ch. 3-4"; showValidationError = false }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
+        // FIXED: Test Format Selector
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("SELECT TEST FORMAT", color = TextDarkGrayPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("Multiple Choice", selectedTestType == "Multiple Choice") { selectedTestType = "Multiple Choice" }
+            Chip("Essay", selectedTestType == "Essay") { selectedTestType = "Essay" }
+            Chip("Voice Record", selectedTestType == "Voice Record") { selectedTestType = "Voice Record" }
+        }
+
+        Spacer(modifier = Modifier.weight(1f, fill = false))
+        Spacer(modifier = Modifier.height(32.dp))
         Card(colors = CardDefaults.cardColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, CardDarkPurple), shape = RoundedCornerShape(12.dp)) {
             Row(modifier = Modifier.padding(16.dp)) {
                 Icon(Icons.Outlined.Info, contentDescription = "Info", tint = TextDarkGrayPurple, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(12.dp))
-                Text("Question count (5-25) scales with volume of material read. You need 50%+ to unlock.", color = TextDarkGrayPurple, fontSize = 12.sp)
+                Text("Question count scales with volume of material read. You need 50%+ to unlock.", color = TextDarkGrayPurple, fontSize = 12.sp)
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -907,7 +933,7 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit, onB
                 if (inputText.isBlank()) {
                     showValidationError = true
                 } else {
-                    onGenerateQuiz(inputText)
+                    onGenerateQuiz(inputText, selectedTestType)
                 }
             },
             modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -974,17 +1000,17 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
     BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
 
     if (showEscapeWarning) {
-        CancelQuizWarningDialog(onConfirm = { 
+        CancelQuizWarningDialog(onConfirm = {
             isExiting = true
-            onFailReturn() 
+            onFailReturn()
         }, onDismiss = { showEscapeWarning = false })
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> 
+        val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE && quizState == QuizState.ACTIVE && !isExiting) {
-                showCheatWarning = true 
+                showCheatWarning = true
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
