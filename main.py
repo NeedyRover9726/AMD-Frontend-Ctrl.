@@ -210,22 +210,26 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
             )
 
         best_distance = distances[0]
-        highly_relevant_chunks = [
-            dist for dist in distances 
-            if dist <= (best_distance + 0.15) and dist < 0.55
-        ]
+        filtered_docs = []
+        for doc, dist in zip(retrieved_documents, distances):
+            # Relaxed the dynamic margin slightly to accommodate short queries like "1-2"
+            if dist <= (best_distance + 0.20) and dist < 0.65:
+                filtered_docs.append(doc)
         
-        if not highly_relevant_chunks:
+        if not filtered_docs:
              return JSONResponse(
                 status_code=400,
                 content={"error": "INSUFFICIENT_DATA", "message": "No highly relevant material found for this topic."}
             )
 
-        concept_count = len(highly_relevant_chunks) 
-        calculated_length = int(concept_count * 1.5)
+        # Combine ONLY the filtered, highly relevant chunks
+        context_text = "\n---\n".join(filtered_docs)
+
+        # NEW SCALING MATH: Base the quiz length on the actual character volume of the text.
+        # It takes roughly 450 characters of textbook material to generate 1 good multiple-choice question.
+        calculated_length = len(context_text) // 450
         quiz_length = max(5, min(25, calculated_length))
         
-        context_text = "\n---\n".join(retrieved_documents)
         system_prompt = (
             "You are an academic instructor. Your ONLY task is to generate multiple-choice questions based EXCLUSIVELY on the provided Context.\n"
             "Rules:\n"
