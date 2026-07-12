@@ -21,7 +21,6 @@ data class BreakResponse(
     @SerializedName("recommended_break_minutes") val recommendedBreakMinutes: Int
 )
 
-// FIXED: Updated to handle the new background processing JSON response
 data class UploadResponse(
     val status: String,
     val title: String,
