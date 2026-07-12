@@ -185,7 +185,7 @@ async def list_materials():
 @app.post("/generate-quiz/")
 async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)):
     """
-    Phase 3: Queries ChromaDB and generates the JSON quiz array.
+    Phase 3: Queries ChromaDB and generates the JSON quiz array using the Fact-Scratchpad Strategy.
     """
     try:
         title_list = [t.strip() for t in selected_titles.split(",") if t.strip()]
@@ -193,9 +193,10 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
         if not title_list:
             raise HTTPException(status_code=400, detail="You must select at least one material.")
 
+        # FIX 1: Bump n_results to 25 so the LLM has enough raw text to find 25 facts
         results = collection.query(
             query_texts=[topic],
-            n_results=10, 
+            n_results=25, 
             where={"title": {"$in": title_list}},
             include=["documents", "distances"] 
         )
@@ -209,11 +210,9 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
-        # THE BUG FIX: Tighter dynamic margin to prevent context flooding
         best_distance = distances[0]
         filtered_docs = []
         for doc, dist in zip(retrieved_documents, distances):
-            # Tightened to +0.15 and 0.60 max distance
             if dist <= (best_distance + 0.15) and dist < 0.60:
                 filtered_docs.append(doc)
         
@@ -223,15 +222,9 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No highly relevant material found for this topic."}
             )
 
-        # Combine ONLY the filtered, highly relevant chunks
         context_text = "\n---\n".join(filtered_docs)
 
-        # NEW SCALING MATH: 
-        # Require 600 characters per question to ensure AI has enough facts.
-        # Lower the minimum to 3 (so short queries don't fail).
-        # Cap the maximum to 25.
-        calculated_length = len(context_text) // 600
-        quiz_length = max(3, min(25, calculated_length))
+        # FIX 2: We completely delete the `calculated_length` Python math here.
         
         system_prompt = (
             "You are a strict academic instructor. Your task is to generate a multiple-choice quiz based EXCLUSIVELY on the provided Context.\n"
@@ -252,7 +245,8 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
             "}"
         )
         
-        user_content = f"Context:\n{context_text}\n\nTask: Generate exactly a {quiz_length}-question multiple-choice quiz based on the topic/pages: '{topic}'."
+        # FIX 3: Update user_content to remove the math variable, relying entirely on the prompt.
+        user_content = f"Context:\n{context_text}\n\nTask: Generate a multiple-choice quiz based on the facts available in the text regarding the topic: '{topic}'."
 
         active_text_model = SERVERLESS_TEXT if DEBUG_MODE else GEMMA_DEPLOYMENT
 
@@ -278,8 +272,13 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
         elif raw_output.startswith("```"):
             raw_output = raw_output.replace("```", "", 1).rstrip("```").strip()
 
-        quiz_json = json.loads(raw_output)
-        return quiz_json
+        # FIX 4: Safely extract the "quiz" array so the frontend contract isn't broken
+        full_json = json.loads(raw_output)
+        
+        if "quiz" not in full_json:
+            raise ValueError("Model did not return a 'quiz' key.")
+            
+        return full_json["quiz"]
 
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Model failed to output a valid JSON format. Try again.")
