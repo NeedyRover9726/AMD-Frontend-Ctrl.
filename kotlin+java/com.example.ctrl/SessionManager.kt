@@ -12,6 +12,11 @@ class SessionManager(context: Context) {
         get() = prefs.getBoolean("is_active", false)
         set(value) = prefs.edit { putBoolean("is_active", value) }
 
+    // NEW: Tracks if the current active session is in the Break phase
+    var isBreakMode: Boolean
+        get() = prefs.getBoolean("is_break_mode", false)
+        set(value) = prefs.edit { putBoolean("is_break_mode", value) }
+
     var studyMinutes: Int
         get() = prefs.getInt("study_mins", 0)
         set(value) = prefs.edit { putInt("study_mins", value) }
