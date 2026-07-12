@@ -72,7 +72,7 @@ interface ApiService {
 
 @Suppress("unused")
 object RetrofitClient {
-    private const val BASE_URL = "https://ctrl-uam1.onrender.com/"
+    private const val BASE_URL = "http://165.245.137.153:8000/"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(90, TimeUnit.SECONDS)
