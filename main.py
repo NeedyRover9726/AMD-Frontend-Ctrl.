@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Load environment variables from the .env file
 load_dotenv()
 
 app = FastAPI(title="Ctrl. Backend - Gamified RAG Engine")
@@ -28,23 +27,16 @@ client = OpenAI(
     api_key=FIREWORKS_API_KEY
 )
 
-# ==========================================
-# 🛠️ TESTING TOGGLE (Change to False for final build)
-# ==========================================
 DEBUG_MODE = True
 
-# Dedicated On-Demand Path (For Final Submission)
 GEMMA_DEPLOYMENT = "accounts/sergecalasara12-123/deployments/c5tpac33"
 
-# The Absolute Best Serverless Fallbacks available right now
 SERVERLESS_VISION = "accounts/fireworks/models/qwen3p7-plus"
 SERVERLESS_TEXT = "accounts/fireworks/models/deepseek-v4-flash"
-# ==========================================
 
-# Initialize ChromaDB persistent storage locally on the server
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
-# UPGRADE 1: Use Fireworks' Embedding Model instead of Chroma's default
+# UPGRADE 1: Use Fireworks' Embedding Model instead
 fireworks_ef = OpenAIEmbeddingFunction(
     api_key=FIREWORKS_API_KEY,
     api_base="https://api.fireworks.ai/inference/v1",
@@ -79,10 +71,6 @@ class QuizResult(BaseModel):
     total_questions: int
     correct_answers: int
     is_session_complete: bool = False
-
-# ==========================================
-# 🚀 API ENDPOINTS
-# ==========================================
 
 @app.get("/calculate-break/")
 async def get_break_time(study_time: int = Query(..., description="Study session length in minutes")):
