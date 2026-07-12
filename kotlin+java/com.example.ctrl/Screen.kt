@@ -5,6 +5,7 @@ package com.example.ctrl
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,15 +75,16 @@ fun SplashScreen(onNavigateToHome: () -> Unit) {
 fun HomeScreen(
     isActive: Boolean,
     studyTimeMins: Int,
+    elapsedMinutes: Float,
     blockedApps: List<String>,
+    installedApps: List<AppInfo>,
     selectedFileName: String,
-    readingProgress: Float,
     uploadedMaterials: List<StudyMaterial>,
     isUploading: Boolean,
     onStartSession: () -> Unit,
     onUpdateSession: () -> Unit,
     onOpenFile: () -> Unit = {},
-    onDeleteMaterial: (StudyMaterial) -> Unit, // FIXED: Added delete callback
+    onDeleteMaterial: (StudyMaterial) -> Unit,
     onMaterialUploaded: (String, Uri) -> Unit
 ) {
     val context = LocalContext.current
@@ -97,25 +99,42 @@ fun HomeScreen(
         }
     }
 
-    var elapsedMinutes by remember { mutableFloatStateOf(0f) }
-
-    LaunchedEffect(isActive) {
-        if (isActive && studyTimeMins > 0) {
-            while (elapsedMinutes < studyTimeMins) {
-                delay(60.seconds)
-                elapsedMinutes += 1f
-            }
-        }
-    }
-
     val dynamicProgress = if (studyTimeMins > 0) {
         (elapsedMinutes / studyTimeMins).coerceIn(0f, 1f)
     } else 0f
 
     val remainingMins = (studyTimeMins - elapsedMinutes.toInt()).coerceAtLeast(0)
 
-    // FIXED: Added scrollState so the Home Screen can scroll infinitely
     val scrollState = rememberScrollState()
+
+    // 3-Dot Menu & Delete State
+    var showMenu by remember { mutableStateOf(false) }
+    var isDeleteMode by remember { mutableStateOf(false) }
+    var materialToDelete by remember { mutableStateOf<StudyMaterial?>(null) }
+
+    // Warning Dialog for explicit deletion
+    if (materialToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { materialToDelete = null },
+            containerColor = CardDarkPurple,
+            title = { Text("Delete Material", color = TextWhite, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete '${materialToDelete!!.name}'?", color = TextMutedLilac) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteMaterial(materialToDelete!!)
+                    materialToDelete = null
+                    if (uploadedMaterials.isEmpty()) isDeleteMode = false
+                }) {
+                    Text("Delete", color = Color(0xFFE53935), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { materialToDelete = null }) {
+                    Text("Cancel", color = TextMutedLilac)
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -159,8 +178,30 @@ fun HomeScreen(
                 if (isUploading) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), color = BtnElectricPurple, strokeWidth = 2.dp)
                 } else {
-                    IconButton(onClick = { launcher.launch("application/pdf") }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Material", tint = BtnElectricPurple)
+                    Box {
+                        IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Menu", tint = BtnElectricPurple)
+                        }
+                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, containerColor = CardDarkPurple) {
+                            DropdownMenuItem(
+                                text = { Text("Add Material", color = TextWhite) },
+                                onClick = {
+                                    showMenu = false
+                                    launcher.launch("application/pdf")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (isDeleteMode) "Done Deleting" else "Delete Material", color = TextWhite) },
+                                onClick = {
+                                    showMenu = false
+                                    if (uploadedMaterials.isEmpty()) {
+                                        Toast.makeText(context, "Study materials are still empty.", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        isDeleteMode = !isDeleteMode
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -172,18 +213,17 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Text("No study materials uploaded", color = TextDarkGrayPurple, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Tap here or the + icon to upload", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
+                        Text("Tap here or the 3 dots to upload", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
                     }
                 }
             } else {
                 Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     uploadedMaterials.forEach { material ->
-                        // FIXED: Passing the onDelete block to enable the trash icon
                         StudyMaterialCard(
                             title = material.name,
                             subtitle = "Ready for session",
                             isActive = false,
-                            onDelete = { onDeleteMaterial(material) }
+                            onDelete = if (isDeleteMode) { { materialToDelete = material } } else null
                         )
                     }
                 }
@@ -222,7 +262,7 @@ fun HomeScreen(
                     Text(selectedFileName.ifEmpty { "Study Material" }, color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("Total: $studyTimeMins mins • ${blockedApps.size} apps locked", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
-                        Text("${(readingProgress * 100).toInt()}%", color = SuccessNeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("${(dynamicProgress * 100).toInt()}%", color = SuccessNeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     LinearProgressIndicator(progress = { dynamicProgress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50)), color = SuccessNeonGreen, trackColor = Color.White.copy(alpha = 0.2f))
@@ -251,8 +291,10 @@ fun HomeScreen(
                     }
                     if (blockedApps.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        blockedApps.forEach { app ->
-                            Text("• $app", color = TextMutedLilac, fontSize = 14.sp, modifier = Modifier.padding(start = 40.dp, bottom = 4.dp))
+                        blockedApps.forEach { pkg ->
+                            // FIXED: Translate package name back to the App Name
+                            val appName = installedApps.find { it.packageName == pkg }?.name ?: pkg
+                            Text("• $appName", color = TextMutedLilac, fontSize = 14.sp, modifier = Modifier.padding(start = 40.dp, bottom = 4.dp))
                         }
                     }
                 }
@@ -266,7 +308,7 @@ fun HomeScreen(
 fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: Int, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50)).size(36.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite, modifier = Modifier.size(18.dp)) }
+            IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50))) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite) }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text("CTRL INTERCEPT", color = BtnElectricPurple, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -341,7 +383,7 @@ fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: I
     }
 }
 
-// --- 2.1 END SESSION SCREEN ---
+// --- NEW: END SESSION SCREEN ---
 @Composable
 fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2A0D14), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -366,462 +408,12 @@ fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Un
     }
 }
 
-// --- HELPER COMPONENTS ---
-@Composable
-fun OverviewRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, color = TextDarkGrayPurple, fontSize = 14.sp)
-        Text(value, color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-// FIXED: StudyMaterialCard now accepts an onDelete parameter to show a trash icon
-@Composable
-fun StudyMaterialCard(title: String, subtitle: String, isActive: Boolean, onClick: () -> Unit = {}, onDelete: (() -> Unit)? = null) {
-    val bgColor = if (isActive) BtnElectricPurple.copy(alpha = 0.1f) else CardDarkPurple
-    val borderColor = if (isActive) BtnElectricPurple else BorderMutedViolet
-    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.dp, borderColor), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                Icon(imageVector = Icons.Outlined.Description, contentDescription = "File", tint = if(isActive) BtnElectricPurple else TextDarkGrayPurple)
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
-                Text(subtitle, color = if (isActive) BtnElectricPurple else TextDarkGrayPurple, fontSize = 12.sp)
-            }
-            if (isActive) {
-                Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50)))
-            } else if (onDelete != null) {
-                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun OptionCard(title: String, subtitle: String, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val bgColor = if (isSelected) BtnElectricPurple.copy(alpha = 0.2f) else CardDarkPurple
-    val borderColor = if (isSelected) BtnElectricPurple else BorderMutedViolet
-    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.dp, borderColor), shape = RoundedCornerShape(12.dp), modifier = modifier.height(80.dp)) {
-        Column(modifier = Modifier.padding(12.dp).fillMaxSize(), verticalArrangement = Arrangement.Center) {
-            Text(title, color = TextWhite, fontWeight = FontWeight.Bold)
-            if (subtitle.isNotEmpty()) { Text(subtitle, color = TextDarkGrayPurple, fontSize = 12.sp) }
-        }
-    }
-}
-
-@Composable
-fun Chip(text: String, onClick: () -> Unit) {
-    Box(modifier = Modifier.clickable { onClick() }.border(1.dp, BorderMutedViolet, RoundedCornerShape(50)).background(CardDarkPurple, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Text(text, color = TextMutedLilac, fontSize = 12.sp)
-    }
-}
-
-fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = this.drawBehind {
-    drawRoundRect(
-        color = color,
-        style = Stroke(width = strokeWidth.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)),
-        cornerRadius = CornerRadius(cornerRadius.toPx())
-    )
-}
-
-// --- NEW REUSABLE WARNING DIALOG ---
-@Composable
-fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = CardDarkPurple,
-        title = { Text("End Quiz Attempt?", color = TextWhite, fontWeight = FontWeight.Bold) },
-        text = { Text("Are you sure you want to go back? Your selected apps will remain strictly blocked until you return and pass a quiz.", color = TextMutedLilac) },
-        confirmButton = {
-            Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))) {
-                Text("Yes, Go Back", color = TextWhite, fontWeight = FontWeight.Bold)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = TextMutedLilac)
-            }
-        }
-    )
-}
-
-
-// --- 3. INTERCEPT INPUT SCREEN ---
-@Composable
-fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit, onBackToStudy: () -> Unit) {
-    var inputText by remember { mutableStateOf("") }
-    var showValidationError by remember { mutableStateOf(false) }
-
-    // FIXED: Escape Warning State
-    var showEscapeWarning by remember { mutableStateOf(false) }
-
-    // Shows warning dialog if they swipe back
-    BackHandler { showEscapeWarning = true }
-
-    if (showEscapeWarning) {
-        CancelQuizWarningDialog(onConfirm = onBackToStudy, onDismiss = { showEscapeWarning = false })
-    }
-
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-
-        Text("Ctrl.", color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-
-        Spacer(modifier = Modifier.height(32.dp))
-        Text("CTRL INTERCEPTED", color = BtnElectricPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("What did you\njust read?", color = TextWhite, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Tell us where you are in\n${fileName.ifEmpty { "your document" }}", color = TextMutedLilac, textAlign = TextAlign.Center)
-
-        Spacer(modifier = Modifier.height(32.dp))
-        OutlinedTextField(
-            value = inputText,
-            onValueChange = {
-                inputText = it
-                showValidationError = false
-            },
-            placeholder = { Text("e.g. Chapters 3-4 or Pages 38-55", color = TextDarkGrayPurple) },
-            modifier = Modifier.fillMaxWidth(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = if (showValidationError) Color(0xFFE53935) else BtnElectricPurple,
-                unfocusedBorderColor = if (showValidationError) Color(0xFFE53935) else BorderMutedViolet,
-                unfocusedContainerColor = CardDarkPurple,
-                focusedContainerColor = CardDarkPurple,
-                focusedTextColor = TextWhite,
-                unfocusedTextColor = TextWhite
-            ),
-            shape = RoundedCornerShape(16.dp)
-        )
-
-        if (showValidationError) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("⚠️ You must enter a topic or chapter to generate a quiz.", color = Color(0xFFE53935), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("Chapter 3") { inputText = "Chapter 3"; showValidationError = false }
-            Chip("Pages 42-58") { inputText = "Pages 42-58"; showValidationError = false }
-            Chip("Ch. 3-4") { inputText = "Ch. 3-4"; showValidationError = false }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-        Card(colors = CardDefaults.cardColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, CardDarkPurple), shape = RoundedCornerShape(12.dp)) {
-            Row(modifier = Modifier.padding(16.dp)) {
-                Icon(Icons.Outlined.Info, contentDescription = "Info", tint = TextDarkGrayPurple, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(12.dp))
-                Text("Question count (5-25) scales with volume of material read. You need 50%+ to unlock.", color = TextDarkGrayPurple, fontSize = 12.sp)
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(
-            onClick = {
-                if (inputText.isBlank()) {
-                    showValidationError = true
-                } else {
-                    onGenerateQuiz(inputText)
-                }
-            },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Text("Generate Quiz >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        }
-
-        // FIXED: Button triggers the warning dialog
-        Spacer(modifier = Modifier.height(12.dp))
-        OutlinedButton(
-            onClick = { showEscapeWarning = true },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent),
-            border = BorderStroke(1.dp, TextDarkGrayPurple),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        }
-    }
-}
-
-// --- 4. RAG QUIZ ENGINE & ANTI-CHEAT ---
-enum class QuizState { LOADING, ACTIVE, PASSED, FAILED, ERROR }
-
-@Composable
-fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn: () -> Unit) {
-    var quizState by remember { mutableStateOf(QuizState.LOADING) }
-    var currentQIndex by remember { mutableIntStateOf(0) }
-    var selectedOption by remember { mutableStateOf<Int?>(null) }
-    var isChecked by remember { mutableStateOf(false) }
-    var score by remember { mutableIntStateOf(0) }
-
-    var showCheatWarning by remember { mutableStateOf(false) }
-    var showEscapeWarning by remember { mutableStateOf(false) } // FIXED: Escape Warning State
-
-    var questions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
-    var errorMessage by remember { mutableStateOf("") }
-
-    val coroutineScope = rememberCoroutineScope()
-
-    LaunchedEffect(Unit) {
-        coroutineScope.launch {
-            try {
-                val titleToUse = fileName.ifEmpty { "General Knowledge" }
-                val response = RetrofitClient.apiService.generateQuiz(topic, titleToUse, 3)
-
-                if (response.isNotEmpty()) {
-                    questions = response
-                    quizState = QuizState.ACTIVE
-                } else {
-                    errorMessage = "AI couldn't generate questions for this topic."
-                    quizState = QuizState.ERROR
-                }
-            } catch (e: Exception) {
-                Log.e("QuizAPI", "Error fetching quiz", e)
-                errorMessage = "Connection error. Make sure the backend server is running."
-                quizState = QuizState.ERROR
-            }
-        }
-    }
-
-    // Handles physical swiping back
-    BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
-
-    // Dialog for explicitly quitting via the button or back swipe
-    if (showEscapeWarning) {
-        CancelQuizWarningDialog(onConfirm = onFailReturn, onDismiss = { showEscapeWarning = false })
-    }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_PAUSE && quizState == QuizState.ACTIVE) showCheatWarning = true }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    if (showCheatWarning) {
-        Dialog(onDismissRequest = { }, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
-            Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, Color(0xFFE53935)), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Outlined.Block, contentDescription = "No Entry", tint = Color(0xFFE53935), modifier = Modifier.size(48.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Do Not Cheat!", color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text("You cannot access the home screen, back button, or recent apps during a quiz. Complete the quiz honestly to earn your access.", color = TextMutedLilac, textAlign = TextAlign.Center, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(onClick = { showCheatWarning = false }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(12.dp)) { Text("Continue Quiz", color = TextWhite, fontWeight = FontWeight.Bold) }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TextButton(onClick = onFailReturn) { Text("Exit without unlocking", color = TextDarkGrayPurple, fontSize = 12.sp) }
-                }
-            }
-        }
-    }
-
-    if (quizState == QuizState.ERROR) {
-        Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(Icons.Outlined.Warning, contentDescription = "Error", tint = Color(0xFFE53935), modifier = Modifier.size(64.dp))
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Quiz Generation Failed", color = TextWhite, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(errorMessage, color = TextMutedLilac, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(onClick = onFailReturn, colors = ButtonDefaults.buttonColors(containerColor = CardDarkPurple)) {
-                Text("Return to Dashboard", color = TextWhite)
-            }
-        }
-        return
-    }
-
-    if (quizState == QuizState.FAILED) {
-        val percentage = (score.toFloat() / questions.size) * 100
-        Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2A0D14), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(modifier = Modifier.size(80.dp).background(Color(0xFFE53935).copy(alpha=0.2f), RoundedCornerShape(24.dp)).border(1.dp, Color(0xFFE53935).copy(alpha=0.5f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Close, contentDescription = "Failed", tint = Color(0xFFE53935), modifier = Modifier.size(40.dp))
-            }
-            Spacer(modifier = Modifier.height(32.dp))
-            Text("QUIZ FAILED", color = Color(0xFFFF8A80), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Spacer(modifier = Modifier.height(12.dp))
-            Text("You only got ${percentage.toInt()}%", color = TextWhite, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("$score/${questions.size} correct — you need at least 50% to unlock.\nTry again!", color = TextMutedLilac, textAlign = TextAlign.Center, fontSize = 14.sp)
-
-            Spacer(modifier = Modifier.height(48.dp))
-            Button(onClick = {
-                score = 0; currentQIndex = 0; selectedOption = null; isChecked = false; quizState = QuizState.ACTIVE
-            }, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(16.dp)) {
-                Text("Try Again", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onFailReturn, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = CardDarkPurple), shape = RoundedCornerShape(16.dp)) {
-                Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-        }
-        return
-    }
-
-    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
-        if (quizState == QuizState.LOADING) {
-            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                CircularProgressIndicator(color = BtnElectricPurple)
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("AI is reading your material...", color = TextWhite, fontWeight = FontWeight.Bold)
-                Text("Generating questions for '$topic'", color = TextMutedLilac)
-            }
-        } else if (quizState == QuizState.ACTIVE && questions.isNotEmpty()) {
-            val question = questions[currentQIndex]
-            val progress = (currentQIndex + 1).toFloat() / questions.size
-
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text("QUIZ TO UNLOCK", color = BtnElectricPurple, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text("Question ${currentQIndex + 1}", color = TextMutedLilac, fontSize = 12.sp)
-                }
-                Text("${currentQIndex + 1}/${questions.size}", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
-
-            Spacer(modifier = Modifier.height(32.dp))
-            Text(question.question, color = TextWhite, fontSize = 20.sp, lineHeight = 28.sp)
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            val letters = listOf("A", "B", "C", "D")
-            val correctIndex = question.options.indexOf(question.correctAnswer)
-
-            question.options.forEachIndexed { index, text ->
-                val isSelected = selectedOption == index
-                val isCorrect = index == correctIndex
-                val showAsCorrect = isChecked && isCorrect
-                val showAsWrong = isChecked && isSelected && !isCorrect
-
-                val bgColor = when {
-                    showAsCorrect -> SuccessNeonGreen.copy(alpha = 0.2f)
-                    showAsWrong -> Color(0xFFE53935).copy(alpha = 0.2f)
-                    isSelected -> BtnElectricPurple.copy(alpha = 0.2f)
-                    else -> CardDarkPurple
-                }
-                val borderColor = when {
-                    showAsCorrect -> SuccessNeonGreen
-                    showAsWrong -> Color(0xFFE53935)
-                    isSelected -> BtnElectricPurple
-                    else -> BorderMutedViolet
-                }
-
-                Card(
-                    onClick = { if (!isChecked) selectedOption = index },
-                    colors = CardDefaults.cardColors(containerColor = bgColor),
-                    border = BorderStroke(1.dp, borderColor),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(32.dp).background(if(showAsCorrect) SuccessNeonGreen else if(showAsWrong) Color(0xFFE53935) else if(isSelected) BtnElectricPurple else BorderMutedViolet, shape = RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
-                            Text(letters.getOrElse(index) { "?" }, color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(text, color = TextWhite, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-            Button(
-                onClick = {
-                    if (!isChecked) {
-                        isChecked = true
-                        if (selectedOption == correctIndex) score++
-                    } else {
-                        if (currentQIndex < questions.size - 1) {
-                            currentQIndex++
-                            selectedOption = null
-                            isChecked = false
-                        } else {
-                            coroutineScope.launch {
-                                try {
-                                    val evalResponse = RetrofitClient.apiService.evaluateQuiz(
-                                        QuizEvaluateRequest(questions.size, score)
-                                    )
-                                    if (evalResponse.passed) {
-                                        quizState = QuizState.PASSED
-                                        onPass()
-                                    } else {
-                                        quizState = QuizState.FAILED
-                                    }
-                                } catch (_: Exception) {
-                                    if (score.toDouble() / questions.size >= 0.5) {
-                                        quizState = QuizState.PASSED
-                                        onPass()
-                                    } else {
-                                        quizState = QuizState.FAILED
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                enabled = selectedOption != null,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple, disabledContainerColor = CardDarkPurple),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text(if (!isChecked) "Submit Answer" else if (currentQIndex < questions.size - 1) "Next Question" else "See Results", color = if(selectedOption != null) TextWhite else TextDarkGrayPurple, fontWeight = FontWeight.Bold)
-            }
-
-            // FIXED: Triggers the warning dialog instead of immediately quitting
-            Spacer(modifier = Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = { showEscapeWarning = true },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent),
-                border = BorderStroke(1.dp, TextDarkGrayPurple),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-            }
-        }
-    }
-}
-
-// --- 5. UNLOCK SCREEN ---
-@Composable
-fun UnlockScreen(onOpenApp: () -> Unit, onBackToStudy: () -> Unit) {
-    Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B2C10), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Box(modifier = Modifier.size(80.dp).background(SuccessNeonGreen.copy(alpha=0.2f), shape = RoundedCornerShape(24.dp)).border(2.dp, SuccessNeonGreen.copy(alpha=0.5f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.EmojiEvents, contentDescription = "Trophy", tint = SuccessNeonGreen, modifier = Modifier.size(40.dp)) }
-        Spacer(modifier = Modifier.height(32.dp))
-        Text("ACCESS GRANTED", color = SuccessNeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("You earned\n5 minutes.", color = TextWhite, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text("Quiz passed. Timer starts when you open the app.", color = TextMutedLilac, fontSize = 14.sp)
-
-        Spacer(modifier = Modifier.height(48.dp))
-        Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(24.dp)) {
-            Column(modifier = Modifier.padding(horizontal = 48.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("5:00", color = SuccessNeonGreen, fontSize = 48.sp, fontWeight = FontWeight.Bold)
-                Text("free time remaining", color = TextDarkGrayPurple, fontSize = 12.sp)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(48.dp))
-        Button(onClick = onOpenApp, colors = ButtonDefaults.buttonColors(containerColor = SuccessNeonGreen), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Open App", color = Color(0xFF0A1F05), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onBackToStudy, colors = ButtonDefaults.buttonColors(containerColor = CardDarkPurple), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Back to Study Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
-    }
-}
-
 // --- 6. SETUP FLOW SCREENS ---
 @Composable
 fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
     var selected by remember { mutableStateOf("60m") }
     var customHours by remember { mutableIntStateOf(1) }
     var customMins by remember { mutableIntStateOf(0) }
-
-    // Applying scroll state just in case of small screens
     val scrollState = rememberScrollState()
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp)) {
@@ -975,6 +567,29 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> 
 @Composable
 fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onDeleteMaterial: (StudyMaterial) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
     var showError by remember { mutableStateOf(false) }
+    var materialToDelete by remember { mutableStateOf<StudyMaterial?>(null) }
+
+    if (materialToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { materialToDelete = null },
+            containerColor = CardDarkPurple,
+            title = { Text("Delete Material", color = TextWhite, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete '${materialToDelete!!.name}'?", color = TextMutedLilac) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteMaterial(materialToDelete!!)
+                    materialToDelete = null
+                }) {
+                    Text("Delete", color = Color(0xFFE53935), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { materialToDelete = null }) {
+                    Text("Cancel", color = TextMutedLilac)
+                }
+            }
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -1023,9 +638,7 @@ fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: 
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(material.name, color = TextWhite, fontWeight = FontWeight.Bold, maxLines = 1)
                             }
-
-                            // FIXED: Added Trash Icon here as well
-                            IconButton(onClick = { onDeleteMaterial(material) }, modifier = Modifier.size(24.dp)) {
+                            IconButton(onClick = { materialToDelete = material }, modifier = Modifier.size(24.dp)) {
                                 Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935))
                             }
                         }
@@ -1075,7 +688,6 @@ fun CreateSessionStep4(globalBlockedApps: MutableList<String>, installedApps: Li
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Uses LazyColumn, inherently handles infinite scrolling
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(installedApps) { app ->
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1139,5 +751,457 @@ fun SessionOverviewScreen(studyTimeMins: Int, breakTimeMins: Int, blockedCount: 
                 OutlinedButton(onClick = onEditSetup, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(vertical = 16.dp)) { Text("Edit Setup", color = TextMutedLilac, fontWeight = FontWeight.Medium) }
             }
         }
+    }
+}
+
+// --- HELPER COMPONENTS ---
+@Composable
+fun OverviewRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = TextDarkGrayPurple, fontSize = 14.sp)
+        Text(value, color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+fun StudyMaterialCard(title: String, subtitle: String, isActive: Boolean, onClick: () -> Unit = {}, onDelete: (() -> Unit)? = null) {
+    val bgColor = if (isActive) BtnElectricPurple.copy(alpha = 0.1f) else CardDarkPurple
+    val borderColor = if (isActive) BtnElectricPurple else BorderMutedViolet
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.dp, borderColor), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                Icon(imageVector = Icons.Outlined.Description, contentDescription = "File", tint = if(isActive) BtnElectricPurple else TextDarkGrayPurple)
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1)
+                Text(subtitle, color = if (isActive) BtnElectricPurple else TextDarkGrayPurple, fontSize = 12.sp)
+            }
+            if (isActive) {
+                Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50)))
+            } else if (onDelete != null) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun OptionCard(title: String, subtitle: String, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val bgColor = if (isSelected) BtnElectricPurple.copy(alpha = 0.2f) else CardDarkPurple
+    val borderColor = if (isSelected) BtnElectricPurple else BorderMutedViolet
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = bgColor), border = BorderStroke(1.dp, borderColor), shape = RoundedCornerShape(12.dp), modifier = modifier.height(80.dp)) {
+        Column(modifier = Modifier.padding(12.dp).fillMaxSize(), verticalArrangement = Arrangement.Center) {
+            Text(title, color = TextWhite, fontWeight = FontWeight.Bold)
+            if (subtitle.isNotEmpty()) { Text(subtitle, color = TextDarkGrayPurple, fontSize = 12.sp) }
+        }
+    }
+}
+
+@Composable
+fun Chip(text: String, onClick: () -> Unit) {
+    Box(modifier = Modifier.clickable { onClick() }.border(1.dp, BorderMutedViolet, RoundedCornerShape(50)).background(CardDarkPurple, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(text, color = TextMutedLilac, fontSize = 12.sp)
+    }
+}
+
+fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = this.drawBehind {
+    drawRoundRect(
+        color = color,
+        style = Stroke(width = strokeWidth.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)),
+        cornerRadius = CornerRadius(cornerRadius.toPx())
+    )
+}
+
+// --- REUSABLE WARNING DIALOG ---
+@Composable
+fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardDarkPurple,
+        title = { Text("End Quiz Attempt?", color = TextWhite, fontWeight = FontWeight.Bold) },
+        text = { Text("Are you sure you want to go back? Your selected apps will remain strictly blocked until you return and pass a quiz.", color = TextMutedLilac) },
+        confirmButton = {
+            Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))) {
+                Text("Yes, Go Back", color = TextWhite, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextMutedLilac)
+            }
+        }
+    )
+}
+
+
+// --- 3. INTERCEPT INPUT SCREEN ---
+@Composable
+fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String) -> Unit, onBackToStudy: () -> Unit) {
+    var inputText by remember { mutableStateOf("") }
+    var showValidationError by remember { mutableStateOf(false) }
+    var showEscapeWarning by remember { mutableStateOf(false) }
+
+    BackHandler { showEscapeWarning = true }
+
+    if (showEscapeWarning) {
+        CancelQuizWarningDialog(onConfirm = onBackToStudy, onDismiss = { showEscapeWarning = false })
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+
+        Text("Ctrl.", color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("CTRL INTERCEPTED", color = BtnElectricPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("What did you\njust read?", color = TextWhite, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Tell us where you are in\n${fileName.ifEmpty { "your document" }}", color = TextMutedLilac, textAlign = TextAlign.Center)
+
+        Spacer(modifier = Modifier.height(32.dp))
+        OutlinedTextField(
+            value = inputText,
+            onValueChange = {
+                inputText = it
+                showValidationError = false
+            },
+            placeholder = { Text("e.g. Chapters 3-4 or Pages 38-55", color = TextDarkGrayPurple) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = if (showValidationError) Color(0xFFE53935) else BtnElectricPurple,
+                unfocusedBorderColor = if (showValidationError) Color(0xFFE53935) else BorderMutedViolet,
+                unfocusedContainerColor = CardDarkPurple,
+                focusedContainerColor = CardDarkPurple,
+                focusedTextColor = TextWhite,
+                unfocusedTextColor = TextWhite
+            ),
+            shape = RoundedCornerShape(16.dp)
+        )
+
+        if (showValidationError) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("⚠️ You must enter a topic or chapter to generate a quiz.", color = Color(0xFFE53935), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("Chapter 3") { inputText = "Chapter 3"; showValidationError = false }
+            Chip("Pages 42-58") { inputText = "Pages 42-58"; showValidationError = false }
+            Chip("Ch. 3-4") { inputText = "Ch. 3-4"; showValidationError = false }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+        Card(colors = CardDefaults.cardColors(containerColor = Color.Transparent), border = BorderStroke(1.dp, CardDarkPurple), shape = RoundedCornerShape(12.dp)) {
+            Row(modifier = Modifier.padding(16.dp)) {
+                Icon(Icons.Outlined.Info, contentDescription = "Info", tint = TextDarkGrayPurple, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Question count (5-25) scales with volume of material read. You need 50%+ to unlock.", color = TextDarkGrayPurple, fontSize = 12.sp)
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = {
+                if (inputText.isBlank()) {
+                    showValidationError = true
+                } else {
+                    onGenerateQuiz(inputText)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Text("Generate Quiz >", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { showEscapeWarning = true },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent),
+            border = BorderStroke(1.dp, TextDarkGrayPurple),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        }
+    }
+}
+
+// --- 4. RAG QUIZ ENGINE & ANTI-CHEAT ---
+enum class QuizState { LOADING, ACTIVE, PASSED, FAILED, ERROR }
+
+@Composable
+fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn: () -> Unit) {
+    var quizState by remember { mutableStateOf(QuizState.LOADING) }
+    var currentQIndex by remember { mutableIntStateOf(0) }
+    var selectedOption by remember { mutableStateOf<Int?>(null) }
+    var isChecked by remember { mutableStateOf(false) }
+    var score by remember { mutableIntStateOf(0) }
+
+    var showCheatWarning by remember { mutableStateOf(false) }
+    var showEscapeWarning by remember { mutableStateOf(false) }
+    var isExiting by remember { mutableStateOf(false) }
+
+    var questions by remember { mutableStateOf<List<QuizQuestion>>(emptyList()) }
+    var errorMessage by remember { mutableStateOf("") }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        coroutineScope.launch {
+            try {
+                val titleToUse = fileName.ifEmpty { "General Knowledge" }
+                val response = RetrofitClient.apiService.generateQuiz(topic, titleToUse, 3)
+
+                if (response.isNotEmpty()) {
+                    questions = response
+                    quizState = QuizState.ACTIVE
+                } else {
+                    errorMessage = "AI couldn't generate questions for this topic."
+                    quizState = QuizState.ERROR
+                }
+            } catch (e: Exception) {
+                Log.e("QuizAPI", "Error fetching quiz", e)
+                errorMessage = "Connection error. Make sure the backend server is running."
+                quizState = QuizState.ERROR
+            }
+        }
+    }
+
+    BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
+
+    if (showEscapeWarning) {
+        CancelQuizWarningDialog(onConfirm = { 
+            isExiting = true
+            onFailReturn() 
+        }, onDismiss = { showEscapeWarning = false })
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event -> 
+            if (event == Lifecycle.Event.ON_PAUSE && quizState == QuizState.ACTIVE && !isExiting) {
+                showCheatWarning = true 
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    if (showCheatWarning) {
+        Dialog(onDismissRequest = { }, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
+            Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, Color(0xFFE53935)), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Outlined.Block, contentDescription = "No Entry", tint = Color(0xFFE53935), modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Do Not Cheat!", color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("You cannot access the home screen, back button, or recent apps during a quiz. Complete the quiz honestly to earn your access.", color = TextMutedLilac, textAlign = TextAlign.Center, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(onClick = { showCheatWarning = false }, modifier = Modifier.fillMaxWidth().height(48.dp), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(12.dp)) { Text("Continue Quiz", color = TextWhite, fontWeight = FontWeight.Bold) }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onFailReturn) { Text("Exit without unlocking", color = TextDarkGrayPurple, fontSize = 12.sp) }
+                }
+            }
+        }
+    }
+
+    if (quizState == QuizState.ERROR) {
+        Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2A0D14), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Box(modifier = Modifier.size(80.dp).background(Color(0xFFE53935).copy(alpha=0.2f), RoundedCornerShape(24.dp)).border(1.dp, Color(0xFFE53935).copy(alpha=0.5f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Warning, contentDescription = "Error", tint = Color(0xFFE53935), modifier = Modifier.size(40.dp))
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("GENERATION FAILED", color = Color(0xFFFF8A80), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("Quiz Generation Failed", color = TextWhite, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(errorMessage, color = TextMutedLilac, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(48.dp))
+            Button(onClick = onFailReturn, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = CardDarkPurple), shape = RoundedCornerShape(16.dp)) {
+                Text("Return to Dashboard", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+        return
+    }
+
+    if (quizState == QuizState.FAILED) {
+        val percentage = (score.toFloat() / questions.size) * 100
+        Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF2A0D14), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Box(modifier = Modifier.size(80.dp).background(Color(0xFFE53935).copy(alpha=0.2f), RoundedCornerShape(24.dp)).border(1.dp, Color(0xFFE53935).copy(alpha=0.5f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Close, contentDescription = "Failed", tint = Color(0xFFE53935), modifier = Modifier.size(40.dp))
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("QUIZ FAILED", color = Color(0xFFFF8A80), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("You only got ${percentage.toInt()}%", color = TextWhite, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("$score/${questions.size} correct — you need at least 50% to unlock.\nTry again!", color = TextMutedLilac, textAlign = TextAlign.Center, fontSize = 14.sp)
+
+            Spacer(modifier = Modifier.height(48.dp))
+            Button(onClick = {
+                score = 0; currentQIndex = 0; selectedOption = null; isChecked = false; quizState = QuizState.ACTIVE
+            }, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple), shape = RoundedCornerShape(16.dp)) {
+                Text("Try Again", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onFailReturn, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = CardDarkPurple), shape = RoundedCornerShape(16.dp)) {
+                Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
+        if (quizState == QuizState.LOADING) {
+            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                CircularProgressIndicator(color = BtnElectricPurple)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("AI is reading your material...", color = TextWhite, fontWeight = FontWeight.Bold)
+                Text("Generating questions for '$topic'", color = TextMutedLilac)
+            }
+        } else if (quizState == QuizState.ACTIVE && questions.isNotEmpty()) {
+            val question = questions[currentQIndex]
+            val progress = (currentQIndex + 1).toFloat() / questions.size
+
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("QUIZ TO UNLOCK", color = BtnElectricPurple, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("Question ${currentQIndex + 1}", color = TextMutedLilac, fontSize = 12.sp)
+                }
+                Text("${currentQIndex + 1}/${questions.size}", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
+
+            Spacer(modifier = Modifier.height(32.dp))
+            Text(question.question, color = TextWhite, fontSize = 20.sp, lineHeight = 28.sp)
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            val letters = listOf("A", "B", "C", "D")
+            val correctIndex = question.options.indexOf(question.correctAnswer)
+
+            question.options.forEachIndexed { index, text ->
+                val isSelected = selectedOption == index
+                val isCorrect = index == correctIndex
+                val showAsCorrect = isChecked && isCorrect
+                val showAsWrong = isChecked && isSelected && !isCorrect
+
+                val bgColor = when {
+                    showAsCorrect -> SuccessNeonGreen.copy(alpha = 0.2f)
+                    showAsWrong -> Color(0xFFE53935).copy(alpha = 0.2f)
+                    isSelected -> BtnElectricPurple.copy(alpha = 0.2f)
+                    else -> CardDarkPurple
+                }
+                val borderColor = when {
+                    showAsCorrect -> SuccessNeonGreen
+                    showAsWrong -> Color(0xFFE53935)
+                    isSelected -> BtnElectricPurple
+                    else -> BorderMutedViolet
+                }
+
+                Card(
+                    onClick = { if (!isChecked) selectedOption = index },
+                    colors = CardDefaults.cardColors(containerColor = bgColor),
+                    border = BorderStroke(1.dp, borderColor),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(32.dp).background(if(showAsCorrect) SuccessNeonGreen else if(showAsWrong) Color(0xFFE53935) else if(isSelected) BtnElectricPurple else BorderMutedViolet, shape = RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                            Text(letters.getOrElse(index) { "?" }, color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(text, color = TextWhite, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+            Button(
+                onClick = {
+                    if (!isChecked) {
+                        isChecked = true
+                        if (selectedOption == correctIndex) score++
+                    } else {
+                        if (currentQIndex < questions.size - 1) {
+                            currentQIndex++
+                            selectedOption = null
+                            isChecked = false
+                        } else {
+                            coroutineScope.launch {
+                                try {
+                                    val evalResponse = RetrofitClient.apiService.evaluateQuiz(
+                                        QuizEvaluateRequest(questions.size, score)
+                                    )
+                                    if (evalResponse.passed) {
+                                        quizState = QuizState.PASSED
+                                        onPass()
+                                    } else {
+                                        quizState = QuizState.FAILED
+                                    }
+                                } catch (_: Exception) {
+                                    if (score.toDouble() / questions.size >= 0.5) {
+                                        quizState = QuizState.PASSED
+                                        onPass()
+                                    } else {
+                                        quizState = QuizState.FAILED
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                enabled = selectedOption != null,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = BtnElectricPurple, disabledContainerColor = CardDarkPurple),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text(if (!isChecked) "Submit Answer" else if (currentQIndex < questions.size - 1) "Next Question" else "See Results", color = if(selectedOption != null) TextWhite else TextDarkGrayPurple, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = { showEscapeWarning = true },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent),
+                border = BorderStroke(1.dp, TextDarkGrayPurple),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Back to Studying", color = TextMutedLilac, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+// --- 5. UNLOCK SCREEN ---
+@Composable
+fun UnlockScreen(onOpenApp: () -> Unit, onBackToStudy: () -> Unit) {
+    Column(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF1B2C10), BgMidnight))).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Box(modifier = Modifier.size(80.dp).background(SuccessNeonGreen.copy(alpha=0.2f), shape = RoundedCornerShape(24.dp)).border(2.dp, SuccessNeonGreen.copy(alpha=0.5f), RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.EmojiEvents, contentDescription = "Trophy", tint = SuccessNeonGreen, modifier = Modifier.size(40.dp)) }
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("ACCESS GRANTED", color = SuccessNeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("You earned\n5 minutes.", color = TextWhite, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(16.dp))
+        Text("Quiz passed. Timer starts when you open the app.", color = TextMutedLilac, fontSize = 14.sp)
+
+        Spacer(modifier = Modifier.height(48.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = CardDarkPurple), border = BorderStroke(1.dp, BorderMutedViolet), shape = RoundedCornerShape(24.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 48.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("5:00", color = SuccessNeonGreen, fontSize = 48.sp, fontWeight = FontWeight.Bold)
+                Text("free time remaining", color = TextDarkGrayPurple, fontSize = 12.sp)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(48.dp))
+        Button(onClick = onOpenApp, colors = ButtonDefaults.buttonColors(containerColor = SuccessNeonGreen), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Open App", color = Color(0xFF0A1F05), fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onBackToStudy, colors = ButtonDefaults.buttonColors(containerColor = CardDarkPurple), modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Back to Study Session", color = TextWhite, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
     }
 }
