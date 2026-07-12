@@ -26,22 +26,25 @@ docker run -p 8000:8000 \
   --env FIREWORKS_API_KEY=your_fireworks_key_here \
   --env GEMINI_API_KEY=your_gemini_key_here \
   ctrl-backend
+```
 
+🖥️ AMD Hardware Proof (/proof directory)
+Check the proof/ folder for objective evidence of our AMD Developer Cloud usage:
 
-### 🖥️ AMD Hardware Proof (`/proof` directory)
+hardware_proof.log: Raw rocm-smi output validating AMD Instinct MI300X (gfx942) usage.
 
-Check the `proof/` folder for objective evidence of our AMD Developer Cloud usage:
+cleaned_app_behavior.log: Verifiable success paths for core inference endpoints.
 
-* `hardware_proof.log`: Raw `rocm-smi` output validating AMD Instinct MI300X (gfx942) usage.
-* `cleaned_app_behavior.log`: Verifiable success paths for core inference endpoints.
+🧠 Key Features
+Multimodal Ingestion: Parses PDFs and physical photos via Gemma 4 26B MOE vision capabilities.
 
-### 🧠 Key Features
+Optimized RAG: LangChain chunking + Fireworks AI (nomic-embed-text-v1.5) + Local ChromaDB.
 
-* **Multimodal Ingestion:** Parses PDFs and physical photos via Gemma 4 26B MOE vision capabilities [1.1.3].
-* **Optimized RAG:** LangChain chunking + Fireworks AI (`nomic-embed-text-v1.5`) + Local ChromaDB.
-* **Mobile-Safe Output:** Generates "Fact-Scratchpads" mapped to clean, markdown-stripped JSON arrays.
+Automated 0-Credit Fallback: Natively catches RateLimitError or APIStatusError exceptions on Fireworks and seamlessly reroutes requests to Google's Gemini free tier via the OpenAI SDK compatibility layer.
 
-### 📡 Core Endpoints
+Mobile-Safe Output: Generates "Fact-Scratchpads" mapped to clean, markdown-stripped JSON arrays.
 
-* **`POST /upload-material/`**: Ingests PDFs/images, generates embeddings, and stores them in ChromaDB.
-* **`POST /generate-quiz/`**: Retrieves relevant chunks and returns a pure JSON array of multiple-choice quizzes.
+📡 Core Endpoints
+POST /upload-material/: Ingests PDFs/images, generates embeddings, and stores them in ChromaDB. Handles fallback vision processing if primary models fail.
+
+POST /generate-quiz/: Retrieves relevant chunks and returns a pure JSON array of multiple-choice quizzes using primary or fallback text reasoning models.
