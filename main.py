@@ -170,6 +170,37 @@ async def list_materials():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/delete-material/")
+async def delete_material(title: str = Query(..., description="The title of the material to delete")):
+    """
+    Deletes a specific material and all its associated chunks from the vector database.
+    """
+    try:
+        # Check if the material actually exists before attempting deletion
+        existing_docs = collection.get(
+            where={"title": title},
+            include=["metadatas"]
+        )
+        
+        if not existing_docs.get("ids"):
+            raise HTTPException(status_code=404, detail=f"Material '{title}' not found.")
+
+        # Delete all chunks matching this title from ChromaDB
+        collection.delete(
+            where={"title": title}
+        )
+        
+        return {
+            "status": "success", 
+            "message": f"Successfully deleted '{title}' and all its associated chunks."
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions so FastAPI handles them properly
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/generate-quiz/")
 async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)):
     """
