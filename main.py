@@ -195,7 +195,7 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
 
         results = collection.query(
             query_texts=[topic],
-            n_results=15, 
+            n_results=10, 
             where={"title": {"$in": title_list}},
             include=["documents", "distances"] 
         )
@@ -209,11 +209,12 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
+        # THE BUG FIX: Tighter dynamic margin to prevent context flooding
         best_distance = distances[0]
         filtered_docs = []
         for doc, dist in zip(retrieved_documents, distances):
-            # Relaxed the dynamic margin slightly to accommodate short queries like "1-2"
-            if dist <= (best_distance + 0.20) and dist < 0.65:
+            # Tightened to +0.15 and 0.60 max distance
+            if dist <= (best_distance + 0.15) and dist < 0.60:
                 filtered_docs.append(doc)
         
         if not filtered_docs:
@@ -225,10 +226,12 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
         # Combine ONLY the filtered, highly relevant chunks
         context_text = "\n---\n".join(filtered_docs)
 
-        # NEW SCALING MATH: Base the quiz length on the actual character volume of the text.
-        # It takes roughly 450 characters of textbook material to generate 1 good multiple-choice question.
-        calculated_length = len(context_text) // 450
-        quiz_length = max(5, min(25, calculated_length))
+        # NEW SCALING MATH: 
+        # Require 600 characters per question to ensure AI has enough facts.
+        # Lower the minimum to 3 (so short queries don't fail).
+        # Cap the maximum to 25.
+        calculated_length = len(context_text) // 600
+        quiz_length = max(3, min(25, calculated_length))
         
         system_prompt = (
             "You are an academic instructor. Your ONLY task is to generate multiple-choice questions based EXCLUSIVELY on the provided Context.\n"
