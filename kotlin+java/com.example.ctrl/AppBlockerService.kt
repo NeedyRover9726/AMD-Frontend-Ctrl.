@@ -18,12 +18,16 @@ class AppBlockerService : Service() {
 
     private var isQuizLockdown = false
     private var isBreakMode = false
+    private var isUiProtected = false // FIXED: Tracks if user is busy updating/canceling
 
     private var lastLaunchTime = 0L
 
     companion object {
         const val ACTION_QUIZ_LOCKDOWN = "com.example.ctrl.QUIZ_LOCKDOWN"
         const val EXTRA_LOCKDOWN_STATE = "lockdown_state"
+
+        const val ACTION_PROTECT_UI = "com.example.ctrl.PROTECT_UI"
+        const val EXTRA_PROTECTED_STATE = "protected_state"
 
         const val CHANNEL_ID = "ctrl_blocker_v2"
         const val ALERT_CHANNEL_ID = "ctrl_alerts"
@@ -33,6 +37,9 @@ class AppBlockerService : Service() {
         when (intent?.action) {
             ACTION_QUIZ_LOCKDOWN -> {
                 isQuizLockdown = intent.getBooleanExtra(EXTRA_LOCKDOWN_STATE, false)
+            }
+            ACTION_PROTECT_UI -> {
+                isUiProtected = intent.getBooleanExtra(EXTRA_PROTECTED_STATE, false)
             }
             else -> {
                 val sm = SessionManager(this)
@@ -137,8 +144,8 @@ class AppBlockerService : Service() {
                         sm.elapsedMinutes = 0f
                         triggerAlert("Break Time is Up! ⏳", "Apps are locked again. Back to studying!")
 
-                        // FIXED: Respects Quiz Lockdown! Do not rip the user to the Home screen if they are taking a Quiz.
-                        if (!isQuizLockdown) {
+                        // FIXED: Respects Quiz Lockdown AND Protected UI so it does not interrupt a user's flow!
+                        if (!isQuizLockdown && !isUiProtected) {
                             val returnIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                                 putExtra("NAVIGATE_TO", "home")
