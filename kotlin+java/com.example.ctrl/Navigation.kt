@@ -9,6 +9,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
+import androidx.core.net.toUri
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.*
@@ -34,6 +35,10 @@ fun CtrlApp(
     var isSessionActive by remember { mutableStateOf(false) }
     var studyMinutes by remember { mutableIntStateOf(0) }
     var breakMinutes by remember { mutableIntStateOf(0) }
+
+    // FIXED: Hoisted elapsedMinutes so the progress bar survives screen navigations!
+    var elapsedMinutes by remember { mutableFloatStateOf(0f) }
+
     var selectedFileName by remember { mutableStateOf("") }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
     var readingProgress by remember { mutableFloatStateOf(0.0f) }
@@ -61,13 +66,26 @@ fun CtrlApp(
         val pm = context.packageManager
         val packages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         val appList = mutableListOf<AppInfo>()
+        val myPackage = context.packageName // We will filter this out!
+
         for (packageInfo in packages) {
-            if ((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome")) {
+            // FIXED: Do not include the Ctrl app itself in the blocker list
+            if (packageInfo.packageName != myPackage && ((packageInfo.flags and ApplicationInfo.FLAG_SYSTEM) == 0 || packageInfo.packageName.contains("youtube") || packageInfo.packageName.contains("chrome"))) {
                 val appName = pm.getApplicationLabel(packageInfo).toString()
                 appList.add(AppInfo(appName, packageInfo.packageName))
             }
         }
         installedApps = appList.sortedBy { it.name }
+    }
+
+    // FIXED: Accurate timer loop for the progress bar
+    LaunchedEffect(isSessionActive) {
+        if (isSessionActive && studyMinutes > 0) {
+            while (elapsedMinutes < studyMinutes) {
+                delay(60.seconds)
+                elapsedMinutes += 1f
+            }
+        }
     }
 
     DisposableEffect(Unit) {
@@ -104,9 +122,10 @@ fun CtrlApp(
             HomeScreen(
                 isActive = isSessionActive,
                 studyTimeMins = studyMinutes,
+                elapsedMinutes = elapsedMinutes,
                 blockedApps = blockedAppsList,
+                installedApps = installedApps,
                 selectedFileName = selectedFileName,
-                readingProgress = readingProgress,
                 uploadedMaterials = uploadedMaterials,
                 isUploading = isUploading,
                 onStartSession = { navController.navigate("create_step_1") },
@@ -130,7 +149,6 @@ fun CtrlApp(
                         }
                     }
                 },
-                // FIXED: Handles deleting a material globally
                 onDeleteMaterial = { material ->
                     uploadedMaterials.remove(material)
                     if (selectedFileName == material.name) {
@@ -177,7 +195,7 @@ fun CtrlApp(
                                     }
                                 }
                             }
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             Toast.makeText(context, "Upload Failed. Check internet connection.", Toast.LENGTH_SHORT).show()
                         } finally {
                             isUploading = false
@@ -197,7 +215,6 @@ fun CtrlApp(
                 uploadedMaterials = uploadedMaterials,
                 currentFileName = selectedFileName,
                 onFileSelected = { fileName, uri -> selectedFileName = fileName; selectedFileUri = uri },
-                // FIXED: Pass deletion function to the setup screen as well
                 onDeleteMaterial = { material ->
                     uploadedMaterials.remove(material)
                     if (selectedFileName == material.name) {
@@ -218,7 +235,7 @@ fun CtrlApp(
                 onStartSession = {
                     if (!Settings.canDrawOverlays(context)) {
                         Toast.makeText(context, "Please ALLOW 'Display over other apps' to enable the App Blocker", Toast.LENGTH_LONG).show()
-                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
                         context.startActivity(intent)
                     } else {
                         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -233,6 +250,7 @@ fun CtrlApp(
                             context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                         } else {
                             isSessionActive = true
+                            elapsedMinutes = 0f // Reset time explicitly!
                             readingProgress = 0.0f
                             isReadingStarted = false
                             val serviceIntent = Intent(context, AppBlockerService::class.java).apply {
@@ -250,7 +268,12 @@ fun CtrlApp(
             SessionDashboardScreen(isActive = isSessionActive, fileName = selectedFileName, studyTimeMins = studyMinutes, blockedCount = blockedAppsList.size, onCreateSession = { navController.navigate("create_step_1") }, onBack = { navController.popBackStack() }, onUpdate = { navController.navigate("intercept_input") }, onCancel = { navController.navigate("end_session_confirm") })
         }
         composable("end_session_confirm") {
-            EndSessionScreen(minutesLeft = studyMinutes, onConfirm = { navController.navigate("quiz") }, onCancel = { navController.popBackStack() })
+            EndSessionScreen(
+                minutesLeft = (studyMinutes - elapsedMinutes.toInt()).coerceAtLeast(0),
+                // FIXED: If they cancel, they must tell the app what they read, then take the quiz
+                onConfirm = { navController.navigate("intercept_input") },
+                onCancel = { navController.popBackStack() }
+            )
         }
         composable("intercept_input") {
             InterceptInputScreen(
@@ -268,6 +291,7 @@ fun CtrlApp(
                 fileName = selectedFileName,
                 onPass = {
                     isSessionActive = false
+                    elapsedMinutes = 0f
                     readingProgress = 0.0f
                     isReadingStarted = false
                     blockedAppsList.clear()
