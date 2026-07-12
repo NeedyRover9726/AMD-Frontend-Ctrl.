@@ -88,7 +88,9 @@ fun HomeScreen(
     onMaterialUploaded: (String, Uri) -> Unit
 ) {
     val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
+
+    // FIXED: Changed to OpenDocument to allow selecting Images OR PDFs
+    val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -190,7 +192,8 @@ fun HomeScreen(
                                 text = { Text("Add Material", color = TextWhite) },
                                 onClick = {
                                     showMenu = false
-                                    launcher.launch("application/pdf")
+                                    // FIXED: Triggers picker for both PDF and Images
+                                    launcher.launch(arrayOf("application/pdf", "image/*"))
                                 }
                             )
                             DropdownMenuItem(
@@ -210,13 +213,17 @@ fun HomeScreen(
             }
 
             if (uploadedMaterials.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().dashedBorder(BorderMutedViolet, 1.dp, 16.dp).clickable { launcher.launch("application/pdf") }.padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
+                // FIXED: Adding explicit instructions to avoid uploading selfies
+                Box(modifier = Modifier.fillMaxWidth().dashedBorder(BorderMutedViolet, 1.dp, 16.dp).clickable {
+                    launcher.launch(arrayOf("application/pdf", "image/*"))
+                }.padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(imageVector = Icons.Outlined.Folder, contentDescription = "Folder", tint = TextDarkGrayPurple, modifier = Modifier.size(24.dp))
                         Spacer(modifier = Modifier.height(12.dp))
                         Text("No study materials uploaded", color = TextDarkGrayPurple, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("Tap here or the 3 dots to upload", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
+                        Text("Tap to upload PDFs or document images", color = TextDarkGrayPurple.copy(alpha = 0.6f), fontSize = 12.sp)
+                        Text("(Notes, textbook pages. No selfies!)", color = TextDarkGrayPurple.copy(alpha = 0.5f), fontSize = 10.sp)
                     }
                 }
             } else {
@@ -455,7 +462,6 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
         Spacer(modifier = Modifier.height(12.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OptionCard("2 hours", "", selected == "120m", { selected = "120m" }, Modifier.weight(1f))
-            // REPLACED "Up to me" with "AI Decide" block
             OptionCard("AI Decide", "Smart 45m block", selected == "ai", { selected = "ai" }, Modifier.weight(1f))
         }
         Spacer(modifier = Modifier.height(12.dp))
@@ -573,8 +579,31 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> 
 }
 
 @Composable
-fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
+fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onDeleteMaterial: (StudyMaterial) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
     var showError by remember { mutableStateOf(false) }
+    var materialToDelete by remember { mutableStateOf<StudyMaterial?>(null) }
+
+    if (materialToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { materialToDelete = null },
+            containerColor = CardDarkPurple,
+            title = { Text("Delete Material", color = TextWhite, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete '${materialToDelete!!.name}'?", color = TextMutedLilac) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDeleteMaterial(materialToDelete!!)
+                    materialToDelete = null
+                }) {
+                    Text("Delete", color = Color(0xFFE53935), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { materialToDelete = null }) {
+                    Text("Cancel", color = TextMutedLilac)
+                }
+            }
+        )
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -622,6 +651,9 @@ fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: 
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(material.name, color = TextWhite, fontWeight = FontWeight.Bold, maxLines = 1)
+                            }
+                            IconButton(onClick = { materialToDelete = material }, modifier = Modifier.size(24.dp)) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935))
                             }
                         }
                     }
