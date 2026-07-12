@@ -1,0 +1,15 @@
+Demo data loaded for judges!
+
+INFO:     112.198.161.19:21728 - "GET /docs HTTP/1.1" 200 OK
+INFO:     112.198.161.19:21728 - "GET /openapi.json HTTP/1.1" 200 OK
+INFO:     112.198.161.19:21525 - "POST /upload-material/ HTTP/1.1" 200 OK
+INFO:     112.198.161.19:21597 - "POST /generate-quiz/ HTTP/1.1" 400 Bad Request
+INFO:     112.198.161.19:21664 - "POST /generate-quiz/ HTTP/1.1" 200 OK
+
+INFO:     112.198.161.19:21505 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     112.198.161.19:21519 - "GET / HTTP/1.1" 404 Not Found
+INFO:     143.44.192.98:57658 - "GET /materials/ HTTP/1.1" 200 OK
+INFO:     143.44.192.98:58096 - "POST /upload-material/ HTTP/1.1" 200 OK
+INFO:     143.44.192.98:58406 - "GET /materials/ HTTP/1.1" 200 OK
+INFO:     143.44.192.98:59487 - "POST /generate-quiz/ HTTP/1.1" 200 OK
+INFO:     143.44.192.98:63634 - "POST /generate-quiz/ HTTP/1.1" 200 OK
