@@ -74,7 +74,9 @@ fun SplashScreen(onNavigateToHome: () -> Unit) {
 @Composable
 fun HomeScreen(
     isActive: Boolean,
+    isBreakMode: Boolean,
     studyTimeMins: Int,
+    breakTimeMins: Int,
     elapsedMinutes: Float,
     blockedApps: List<String>,
     installedApps: List<AppInfo>,
@@ -96,7 +98,6 @@ fun HomeScreen(
 
                 if (cursor.moveToFirst() && nameIndex != -1) {
                     val name = cursor.getString(nameIndex)
-                    // FIXED: 500 MB Size Limiter Check
                     val size = if (sizeIndex != -1 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else 0L
                     if (size > 500 * 1024 * 1024) {
                         Toast.makeText(context, "File exceeds 500MB limit. Please upload a smaller file.", Toast.LENGTH_LONG).show()
@@ -108,11 +109,12 @@ fun HomeScreen(
         }
     }
 
-    val dynamicProgress = if (studyTimeMins > 0) {
-        (elapsedMinutes / studyTimeMins).coerceIn(0f, 1f)
+    val currentTotalMins = if (isBreakMode) breakTimeMins else studyTimeMins
+    val dynamicProgress = if (currentTotalMins > 0) {
+        (elapsedMinutes / currentTotalMins).coerceIn(0f, 1f)
     } else 0f
 
-    val remainingMins = (studyTimeMins - elapsedMinutes.toInt()).coerceAtLeast(0)
+    val remainingMins = (currentTotalMins - elapsedMinutes.toInt()).coerceAtLeast(0)
     val scrollState = rememberScrollState()
 
     var showMenu by remember { mutableStateOf(false) }
@@ -152,9 +154,6 @@ fun HomeScreen(
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text("Ctrl.", color = BtnElectricPurple, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            IconButton(onClick = { }, modifier = Modifier.background(TopLogoBg, shape = RoundedCornerShape(50)).size(36.dp)) {
-                Icon(imageVector = Icons.Outlined.Settings, contentDescription = "Settings", tint = TextMutedLilac, modifier = Modifier.size(20.dp))
-            }
         }
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -257,7 +256,7 @@ fun HomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50)))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("ACTIVE SESSION", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(if (isBreakMode) "BREAK TIME" else "ACTIVE SESSION", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text(timeLabel, color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -267,7 +266,7 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(selectedFileName.ifEmpty { "Study Material" }, color = TextWhite, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Total: $studyTimeMins mins • ${blockedApps.size} apps locked", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                        Text("Total: $currentTotalMins mins • ${if(isBreakMode) "Apps Unlocked" else "${blockedApps.size} apps locked"}", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
                         Text("${(dynamicProgress * 100).toInt()}%", color = SuccessNeonGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(16.dp))
@@ -293,9 +292,9 @@ fun HomeScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(imageVector = Icons.Outlined.Lock, contentDescription = "Locked", tint = BtnElectricPurple)
                         Spacer(modifier = Modifier.width(16.dp))
-                        Text("${blockedApps.size} Apps currently blocked", color = TextWhite, fontWeight = FontWeight.Bold)
+                        Text(if (isBreakMode) "All Apps Currently Unlocked" else "${blockedApps.size} Apps currently blocked", color = TextWhite, fontWeight = FontWeight.Bold)
                     }
-                    if (blockedApps.isNotEmpty()) {
+                    if (blockedApps.isNotEmpty() && !isBreakMode) {
                         Spacer(modifier = Modifier.height(12.dp))
                         blockedApps.forEach { pkg ->
                             val appName = installedApps.find { it.packageName == pkg }?.name ?: pkg
@@ -309,7 +308,12 @@ fun HomeScreen(
 }
 
 @Composable
-fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: Int, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
+fun SessionDashboardScreen(isActive: Boolean, isBreakMode: Boolean, fileName: String, studyTimeMins: Int, breakTimeMins: Int, elapsedMinutes: Float, blockedCount: Int, onCreateSession: () -> Unit, onBack: () -> Unit, onUpdate: () -> Unit, onCancel: () -> Unit) {
+    val currentTotalMins = if (isBreakMode) breakTimeMins else studyTimeMins
+    val dynamicProgress = if (currentTotalMins > 0) {
+        (elapsedMinutes / currentTotalMins).coerceIn(0f, 1f)
+    } else 0f
+
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.background(CardDarkPurple, shape = RoundedCornerShape(50))) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = TextWhite) }
@@ -346,14 +350,14 @@ fun SessionDashboardScreen(isActive: Boolean, fileName: String, studyTimeMins: I
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(8.dp).background(SuccessNeonGreen, shape = RoundedCornerShape(50)))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("ONGOING SESSION", color = TextMutedLilac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(if (isBreakMode) "ONGOING BREAK" else "ONGOING SESSION", color = TextMutedLilac, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(fileName.ifEmpty { "Study Material" }, color = TextWhite, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("$studyTimeMins min configured  •  $blockedCount apps blocked", color = TextMutedLilac, fontSize = 12.sp)
+                    Text("$currentTotalMins min configured  •  " + if(isBreakMode) "Apps Unlocked" else "$blockedCount apps blocked", color = TextMutedLilac, fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(16.dp))
-                    LinearProgressIndicator(progress = { 0.3f }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
+                    LinearProgressIndicator(progress = { dynamicProgress }, modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(50)), color = BtnElectricPurple, trackColor = CardDarkPurple)
                 }
             }
 
@@ -451,11 +455,7 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
         Spacer(modifier = Modifier.height(12.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OptionCard("2 hours", "", selected == "120m", { selected = "120m" }, Modifier.weight(1f))
-            OptionCard("Up to me", "No time limit", selected == "none", { selected = "none" }, Modifier.weight(1f))
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(modifier = Modifier.fillMaxWidth()) {
-            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.fillMaxWidth(0.48f))
+            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.weight(1f))
         }
 
         if (selected == "custom") {
@@ -469,10 +469,10 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
                 }
                 Text(" : ", color = TextWhite, fontSize = 48.sp, modifier = Modifier.padding(horizontal = 24.dp))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = { customMins = (customMins + 5) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
+                    IconButton(onClick = { customMins = (customMins + 1) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
                     Text(customMins.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
                     Text("MINS", color = TextDarkGrayPurple, fontSize = 12.sp)
-                    IconButton(onClick = { if (customMins >= 5) customMins -= 5 else customMins = 55 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
+                    IconButton(onClick = { if (customMins >= 1) customMins -= 1 else customMins = 59 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
                 }
             }
         }
@@ -481,7 +481,7 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
         Button(
             onClick = {
                 val resolvedMinutes = when (selected) {
-                    "30m" -> 30; "60m" -> 60; "120m" -> 120; else -> (customHours * 60) + customMins
+                    "30m" -> 30; "60m" -> 60; "120m" -> 120; else -> ((customHours * 60) + customMins).coerceAtLeast(1)
                 }
                 onNext(resolvedMinutes)
             },
@@ -544,10 +544,10 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> 
                 }
                 Text(" : ", color = TextWhite, fontSize = 48.sp, modifier = Modifier.padding(horizontal = 24.dp))
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    IconButton(onClick = { customMins = (customMins + 5) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
+                    IconButton(onClick = { customMins = (customMins + 1) % 60 }) { Text("+", color = BtnElectricPurple, fontSize = 24.sp) }
                     Text(customMins.toString().padStart(2, '0'), color = TextWhite, fontSize = 48.sp, fontWeight = FontWeight.Bold)
                     Text("MINS", color = TextDarkGrayPurple, fontSize = 12.sp)
-                    IconButton(onClick = { if (customMins >= 5) customMins -= 5 else customMins = 55 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
+                    IconButton(onClick = { if (customMins >= 1) customMins -= 1 else customMins = 59 }) { Text("-", color = BtnElectricPurple, fontSize = 32.sp) }
                 }
             }
         }
@@ -556,7 +556,7 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> 
         Button(
             onClick = {
                 val resolvedMinutes = when (selected) {
-                    "30m" -> 30; "60m" -> 60; "120m" -> 120; "ai" -> (studyTimeMins / 4).coerceAtLeast(5); else -> (customHours * 60) + customMins
+                    "30m" -> 30; "60m" -> 60; "120m" -> 120; "ai" -> (studyTimeMins / 4).coerceAtLeast(1); else -> ((customHours * 60) + customMins).coerceAtLeast(1)
                 }
                 onNext(resolvedMinutes)
             },
@@ -860,13 +860,19 @@ fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = thi
     )
 }
 
+// FIXED: Customizable Reusable Dialogs
 @Composable
-fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun CancelWarningDialog(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = CardDarkPurple,
-        title = { Text("End Quiz Attempt?", color = TextWhite, fontWeight = FontWeight.Bold) },
-        text = { Text("Are you sure you want to go back? Your selected apps will remain strictly blocked until you return and pass a quiz.", color = TextMutedLilac) },
+        title = { Text(title, color = TextWhite, fontWeight = FontWeight.Bold) },
+        text = { Text(message, color = TextMutedLilac) },
         confirmButton = {
             Button(onClick = onConfirm, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935))) {
                 Text("Yes, Go Back", color = TextWhite, fontWeight = FontWeight.Bold)
@@ -884,19 +890,23 @@ fun CancelQuizWarningDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 @Composable
 fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> Unit, onBackToStudy: () -> Unit) {
     var inputText by remember { mutableStateOf("") }
-    // FIXED: Test Type UI hook
     var selectedTestType by remember { mutableStateOf("Multiple Choice") }
 
     var showValidationError by remember { mutableStateOf(false) }
     var showEscapeWarning by remember { mutableStateOf(false) }
 
-    // FIXED: Added Scrollbar to Intercept Input Screen
     val scrollState = rememberScrollState()
 
     BackHandler { showEscapeWarning = true }
 
     if (showEscapeWarning) {
-        CancelQuizWarningDialog(onConfirm = onBackToStudy, onDismiss = { showEscapeWarning = false })
+        // FIXED: Custom warning explicitly for the Intercept Screen
+        CancelWarningDialog(
+            title = "Cancel Intercept?",
+            message = "Are you sure you want to go back to studying? Your apps will remain strictly blocked until you pass a quiz.",
+            onConfirm = onBackToStudy,
+            onDismiss = { showEscapeWarning = false }
+        )
     }
 
     Column(
@@ -945,7 +955,6 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> U
             Chip("Ch. 3-4", false) { inputText = "Ch. 3-4"; showValidationError = false }
         }
 
-        // FIXED: Test Format Selector connected to the backend
         Spacer(modifier = Modifier.height(32.dp))
         Text("SELECT TEST FORMAT", color = TextDarkGrayPurple, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Start))
         Spacer(modifier = Modifier.height(12.dp))
@@ -1037,10 +1046,16 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
     BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
 
     if (showEscapeWarning) {
-        CancelQuizWarningDialog(onConfirm = {
-            isExiting = true
-            onFailReturn()
-        }, onDismiss = { showEscapeWarning = false })
+        // FIXED: Dialog specific to exiting an active quiz
+        CancelWarningDialog(
+            title = "End Quiz Attempt?",
+            message = "Are you sure you want to exit the quiz? Your selected apps will remain strictly blocked until you pass.",
+            onConfirm = {
+                isExiting = true
+                onFailReturn()
+            },
+            onDismiss = { showEscapeWarning = false }
+        )
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
