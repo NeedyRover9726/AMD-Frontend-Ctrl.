@@ -1,7 +1,6 @@
-// Module:app
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // Redundant Kotlin plugin removed
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -37,10 +36,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // AGP 8.7.3 uses kotlinOptions
+    // Handled by compose plugin
+    /*
     kotlinOptions {
         jvmTarget = "17"
     }
+    */
 
     buildFeatures {
         compose = true
@@ -64,10 +65,13 @@ dependencies {
     implementation(libs.androidx.compose.material3)
 
     // Advanced Features
-    implementation(libs.androidx.navigation.compose)
+
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
+    implementation(libs.androidx.navigation.compose)
+
+
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
