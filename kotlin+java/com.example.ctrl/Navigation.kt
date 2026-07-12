@@ -1,16 +1,22 @@
 package com.example.ctrl
 
+import android.Manifest
 import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.navigation.compose.*
 import kotlinx.coroutines.delay
@@ -35,6 +41,7 @@ fun CtrlApp(
     val sessionManager = remember { SessionManager(context) }
 
     var isSessionActive by remember { mutableStateOf(sessionManager.isSessionActive) }
+    var isBreakMode by remember { mutableStateOf(sessionManager.isBreakMode) }
     var studyMinutes by remember { mutableIntStateOf(sessionManager.studyMinutes) }
     var breakMinutes by remember { mutableIntStateOf(sessionManager.breakMinutes) }
     var elapsedMinutes by remember { mutableFloatStateOf(sessionManager.elapsedMinutes) }
@@ -53,7 +60,24 @@ fun CtrlApp(
 
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
 
+    // FIXED: Notification Permission Launcher for Android 13+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            Toast.makeText(context, "Please enable notifications to receive study and break alerts!", Toast.LENGTH_LONG).show()
+        }
+    }
+
     LaunchedEffect(Unit) {
+        // Request Notification Permission immediately on App Launch
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val isGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            if (!isGranted) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
         try {
             val response = RetrofitClient.apiService.getMaterials()
             response.savedMaterials.forEach { serverName ->
@@ -79,30 +103,62 @@ fun CtrlApp(
         installedApps = appList.sortedBy { it.name }
     }
 
-    LaunchedEffect(isSessionActive) {
-        if (isSessionActive && studyMinutes > 0) {
-            while (elapsedMinutes < studyMinutes) {
-                delay(60.seconds)
-                elapsedMinutes += 1f
-                sessionManager.elapsedMinutes = elapsedMinutes
+    LaunchedEffect(isSessionActive, isBreakMode) {
+        if (isSessionActive) {
+            val targetMins = if (isBreakMode) breakMinutes else studyMinutes
 
-                // UPDATE FOREGROUND NOTIFICATION
-                val progress = elapsedMinutes / studyMinutes
-                val remainingMins = (studyMinutes - elapsedMinutes.toInt()).coerceAtLeast(0)
-                val hours = remainingMins / 60
-                val mins = remainingMins % 60
-                val timeLabel = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+            if (targetMins > 0) {
+                while (elapsedMinutes < targetMins) {
+                    delay(60.seconds)
+                    elapsedMinutes += 1f
+                    sessionManager.elapsedMinutes = elapsedMinutes
 
-                val updateIntent = Intent(context, AppBlockerService::class.java).apply {
-                    action = AppBlockerService.ACTION_UPDATE_PROGRESS
-                    putExtra(AppBlockerService.EXTRA_PROGRESS, progress)
-                    putExtra(AppBlockerService.EXTRA_TIME_REMAINING, timeLabel)
+                    val progress = elapsedMinutes / targetMins
+                    val remainingMins = (targetMins - elapsedMinutes.toInt()).coerceAtLeast(0)
+                    val hours = remainingMins / 60
+                    val mins = remainingMins % 60
+                    val timeLabel = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                    val modeLabel = if (isBreakMode) "Break Time" else "Study Time"
+
+                    val updateIntent = Intent(context, AppBlockerService::class.java).apply {
+                        action = AppBlockerService.ACTION_UPDATE_PROGRESS
+                        putExtra(AppBlockerService.EXTRA_PROGRESS, progress)
+                        putExtra(AppBlockerService.EXTRA_TIME_REMAINING, "$modeLabel: $timeLabel")
+                    }
+                    context.startService(updateIntent)
                 }
-                context.startService(updateIntent)
 
-                // 100% COMPLETION NOTIFICATION
-                if (elapsedMinutes >= studyMinutes) {
-                    Toast.makeText(context, "Goal Reached! 100% Study Session Complete.", Toast.LENGTH_LONG).show()
+                if (!isBreakMode) {
+                    if (breakMinutes > 0) {
+                        isBreakMode = true
+                        sessionManager.isBreakMode = true
+                        elapsedMinutes = 0f
+                        sessionManager.elapsedMinutes = 0f
+
+                        val phaseIntent = Intent(context, AppBlockerService::class.java).apply {
+                            action = AppBlockerService.ACTION_PHASE_CHANGE
+                            putExtra(AppBlockerService.EXTRA_IS_BREAK, true)
+                            putExtra(AppBlockerService.EXTRA_ALERT_TITLE, "Goal Reached! 100% Complete \uD83C\uDF89")
+                            putExtra(AppBlockerService.EXTRA_ALERT_MSG, "You finished your study session. Apps are unlocked for your break!")
+                        }
+                        context.startService(phaseIntent)
+                    } else {
+                        elapsedMinutes = 0f
+                        sessionManager.elapsedMinutes = 0f
+                    }
+                } else {
+                    isBreakMode = false
+                    sessionManager.isBreakMode = false
+                    elapsedMinutes = 0f
+                    sessionManager.elapsedMinutes = 0f
+
+                    val phaseIntent = Intent(context, AppBlockerService::class.java).apply {
+                        action = AppBlockerService.ACTION_PHASE_CHANGE
+                        putExtra(AppBlockerService.EXTRA_IS_BREAK, false)
+                        putExtra(AppBlockerService.EXTRA_ALERT_TITLE, "Break Time is Up! ⏳")
+                        putExtra(AppBlockerService.EXTRA_ALERT_MSG, "Apps are locked again. Back to studying!")
+                    }
+                    context.startService(phaseIntent)
                 }
             }
         }
@@ -127,21 +183,11 @@ fun CtrlApp(
             })
         }
         composable("home") {
-            LaunchedEffect(isSessionActive, isReadingStarted) {
-                if (isSessionActive && isReadingStarted && readingProgress < 1.0f) {
-                    while (readingProgress < 1.0f) {
-                        delay(5.seconds)
-                        readingProgress = (readingProgress + 0.1f).coerceAtMost(1.0f)
-                    }
-                    if (readingProgress >= 1.0f) {
-                        navController.navigate("quiz") { popUpTo("home") { saveState = true } }
-                    }
-                }
-            }
-
             HomeScreen(
                 isActive = isSessionActive,
+                isBreakMode = isBreakMode,
                 studyTimeMins = studyMinutes,
+                breakTimeMins = breakMinutes,
                 elapsedMinutes = elapsedMinutes,
                 blockedApps = blockedAppsList,
                 installedApps = installedApps,
@@ -180,12 +226,11 @@ fun CtrlApp(
                     coroutineScope.launch {
                         isUploading = true
                         try {
-                            // FIXED: Streaming RequestBody prevents physical device OutOfMemory crashes on large PDFs!
                             val requestBody = object : RequestBody() {
                                 override fun contentType(): MediaType? = MediaType.parse("application/pdf")
                                 override fun writeTo(sink: BufferedSink) {
                                     context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                                        val buffer = ByteArray(8192) // Stream 8KB chunks
+                                        val buffer = ByteArray(8192)
                                         var bytesRead: Int
                                         while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                                             sink.write(buffer, 0, bytesRead)
@@ -234,21 +279,36 @@ fun CtrlApp(
             )
         }
         composable("create_step_1") {
-            CreateSessionStep1(onNext = { minutes -> studyMinutes = minutes; navController.navigate("create_step_2") }, onBack = { navController.popBackStack() })
+            CreateSessionStep1(onNext = { minutes ->
+                studyMinutes = minutes
+                sessionManager.studyMinutes = minutes
+                navController.navigate("create_step_2")
+            }, onBack = { navController.popBackStack() })
         }
         composable("create_step_2") {
-            CreateSessionStep2(studyTimeMins = studyMinutes, onNext = { minutes -> breakMinutes = minutes; navController.navigate("create_step_3") }, onBack = { navController.popBackStack() })
+            CreateSessionStep2(studyTimeMins = studyMinutes, onNext = { minutes ->
+                breakMinutes = minutes
+                sessionManager.breakMinutes = minutes
+                navController.navigate("create_step_3")
+            }, onBack = { navController.popBackStack() })
         }
         composable("create_step_3") {
             CreateSessionStep3(
                 uploadedMaterials = uploadedMaterials,
                 currentFileName = selectedFileName,
-                onFileSelected = { fileName, uri -> selectedFileName = fileName; selectedFileUri = uri },
+                onFileSelected = { fileName, uri ->
+                    selectedFileName = fileName
+                    selectedFileUri = uri
+                    sessionManager.selectedFileName = fileName
+                    sessionManager.selectedFileUri = uri
+                },
                 onDeleteMaterial = { material ->
                     uploadedMaterials.remove(material)
                     if (selectedFileName == material.name) {
                         selectedFileName = ""
                         selectedFileUri = null
+                        sessionManager.selectedFileName = ""
+                        sessionManager.selectedFileUri = null
                     }
                 },
                 onNext = { navController.navigate("create_step_4") },
@@ -256,7 +316,10 @@ fun CtrlApp(
             )
         }
         composable("create_step_4") {
-            CreateSessionStep4(globalBlockedApps = blockedAppsList, installedApps = installedApps, onNext = { navController.navigate("session_overview") }, onBack = { navController.popBackStack() })
+            CreateSessionStep4(globalBlockedApps = blockedAppsList, installedApps = installedApps, onNext = {
+                sessionManager.blockedApps = blockedAppsList
+                navController.navigate("session_overview")
+            }, onBack = { navController.popBackStack() })
         }
         composable("session_overview") {
             SessionOverviewScreen(
@@ -268,7 +331,7 @@ fun CtrlApp(
                         context.startActivity(intent)
                     } else {
                         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-                        val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             appOps.unsafeCheckOpRaw(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
                         } else {
                             @Suppress("DEPRECATION")
@@ -279,12 +342,13 @@ fun CtrlApp(
                             context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                         } else {
                             isSessionActive = true
+                            isBreakMode = false
                             elapsedMinutes = 0f
                             readingProgress = 0.0f
                             isReadingStarted = false
 
-                            // Save to SessionManager
                             sessionManager.isSessionActive = true
+                            sessionManager.isBreakMode = false
                             sessionManager.studyMinutes = studyMinutes
                             sessionManager.breakMinutes = breakMinutes
                             sessionManager.elapsedMinutes = 0f
@@ -304,11 +368,24 @@ fun CtrlApp(
             )
         }
         composable("session_dashboard") {
-            SessionDashboardScreen(isActive = isSessionActive, fileName = selectedFileName, studyTimeMins = studyMinutes, blockedCount = blockedAppsList.size, onCreateSession = { navController.navigate("create_step_1") }, onBack = { navController.popBackStack() }, onUpdate = { navController.navigate("intercept_input") }, onCancel = { navController.navigate("end_session_confirm") })
+            SessionDashboardScreen(
+                isActive = isSessionActive,
+                isBreakMode = isBreakMode,
+                fileName = selectedFileName,
+                studyTimeMins = studyMinutes,
+                breakTimeMins = breakMinutes,
+                elapsedMinutes = elapsedMinutes,
+                blockedCount = blockedAppsList.size,
+                onCreateSession = { navController.navigate("create_step_1") },
+                onBack = { navController.popBackStack() },
+                onUpdate = { navController.navigate("intercept_input") },
+                onCancel = { navController.navigate("end_session_confirm") }
+            )
         }
         composable("end_session_confirm") {
+            val targetMins = if (isBreakMode) breakMinutes else studyMinutes
             EndSessionScreen(
-                minutesLeft = (studyMinutes - elapsedMinutes.toInt()).coerceAtLeast(0),
+                minutesLeft = (targetMins - elapsedMinutes.toInt()).coerceAtLeast(0),
                 onConfirm = { navController.navigate("intercept_input") },
                 onCancel = { navController.popBackStack() }
             )
@@ -325,14 +402,26 @@ fun CtrlApp(
             )
         }
         composable("quiz") {
-            // QUIZ LOCKDOWN: Enable when entering, disable when leaving
+            val activity = LocalActivity.current
+
             DisposableEffect(Unit) {
+                try {
+                    activity?.startLockTask()
+                } catch (e: Exception) {
+                    Log.e("AntiCheat", "Could not hardware-pin screen", e)
+                }
+
                 val lockIntent = Intent(context, AppBlockerService::class.java).apply {
                     action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
                     putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, true)
                 }
                 context.startService(lockIntent)
+
                 onDispose {
+                    try {
+                        activity?.stopLockTask()
+                    } catch (_: Exception) {}
+
                     val unlockIntent = Intent(context, AppBlockerService::class.java).apply {
                         action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
                         putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, false)
@@ -346,6 +435,7 @@ fun CtrlApp(
                 fileName = selectedFileName,
                 onPass = {
                     isSessionActive = false
+                    isBreakMode = false
                     elapsedMinutes = 0f
                     readingProgress = 0.0f
                     isReadingStarted = false
@@ -354,7 +444,6 @@ fun CtrlApp(
                     selectedFileUri = null
                     quizTopic = ""
 
-                    // Clear persistent session
                     sessionManager.clearSession()
 
                     context.stopService(Intent(context, AppBlockerService::class.java))
