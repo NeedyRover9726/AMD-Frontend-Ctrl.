@@ -93,7 +93,7 @@ fun HomeScreen(
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                 val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                
+
                 if (cursor.moveToFirst() && nameIndex != -1) {
                     val name = cursor.getString(nameIndex)
                     // FIXED: 500 MB Size Limiter Check
@@ -669,7 +669,12 @@ fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: 
 
 @Composable
 fun CreateSessionStep4(globalBlockedApps: MutableList<String>, installedApps: List<AppInfo>, onNext: () -> Unit, onBack: () -> Unit) {
+    var searchQuery by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
+
+    val filteredApps = remember(searchQuery, installedApps) {
+        installedApps.filter { it.name.contains(searchQuery, ignoreCase = true) }
+    }
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -691,18 +696,51 @@ fun CreateSessionStep4(globalBlockedApps: MutableList<String>, installedApps: Li
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        LazyColumn(modifier = Modifier.weight(1f)) {
-            items(installedApps) { app ->
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(app.name, color = TextWhite, maxLines = 1)
-                    Checkbox(
-                        checked = globalBlockedApps.contains(app.packageName),
-                        onCheckedChange = { isChecked ->
-                            if (isChecked) { if (!globalBlockedApps.contains(app.packageName)) globalBlockedApps.add(app.packageName) } else { globalBlockedApps.remove(app.packageName) }
-                            showError = false
-                        },
-                        colors = CheckboxDefaults.colors(checkedColor = BtnElectricPurple)
-                    )
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Search apps...", color = TextDarkGrayPurple) },
+            modifier = Modifier.fillMaxWidth(),
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMutedLilac) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = TextMutedLilac)
+                    }
+                }
+            },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = BtnElectricPurple,
+                unfocusedBorderColor = BorderMutedViolet,
+                unfocusedContainerColor = CardDarkPurple,
+                focusedContainerColor = CardDarkPurple,
+                focusedTextColor = TextWhite,
+                unfocusedTextColor = TextWhite
+            ),
+            shape = RoundedCornerShape(16.dp),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (filteredApps.isEmpty()) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text("No apps match '$searchQuery'", color = TextMutedLilac)
+            }
+        } else {
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(filteredApps) { app ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(app.name, color = TextWhite, maxLines = 1)
+                        Checkbox(
+                            checked = globalBlockedApps.contains(app.packageName),
+                            onCheckedChange = { isChecked ->
+                                if (isChecked) { if (!globalBlockedApps.contains(app.packageName)) globalBlockedApps.add(app.packageName) } else { globalBlockedApps.remove(app.packageName) }
+                                showError = false
+                            },
+                            colors = CheckboxDefaults.colors(checkedColor = BtnElectricPurple)
+                        )
+                    }
                 }
             }
         }
@@ -808,7 +846,7 @@ fun Chip(text: String, isSelected: Boolean = false, onClick: () -> Unit) {
     val bgColor = if (isSelected) BtnElectricPurple.copy(alpha = 0.2f) else CardDarkPurple
     val borderColor = if (isSelected) BtnElectricPurple else BorderMutedViolet
     val textColor = if (isSelected) TextWhite else TextMutedLilac
-    
+
     Box(modifier = Modifier.clickable { onClick() }.border(1.dp, borderColor, RoundedCornerShape(50)).background(bgColor, RoundedCornerShape(50)).padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text(text, color = textColor, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
     }
@@ -848,10 +886,10 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> U
     var inputText by remember { mutableStateOf("") }
     // FIXED: Test Type UI hook
     var selectedTestType by remember { mutableStateOf("Multiple Choice") }
-    
+
     var showValidationError by remember { mutableStateOf(false) }
     var showEscapeWarning by remember { mutableStateOf(false) }
-    
+
     // FIXED: Added Scrollbar to Intercept Input Screen
     val scrollState = rememberScrollState()
 
@@ -862,7 +900,7 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> U
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp), 
+        modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
 
@@ -999,17 +1037,17 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
     BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
 
     if (showEscapeWarning) {
-        CancelQuizWarningDialog(onConfirm = { 
+        CancelQuizWarningDialog(onConfirm = {
             isExiting = true
-            onFailReturn() 
+            onFailReturn()
         }, onDismiss = { showEscapeWarning = false })
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> 
+        val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_PAUSE && quizState == QuizState.ACTIVE && !isExiting) {
-                showCheatWarning = true 
+                showCheatWarning = true
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
