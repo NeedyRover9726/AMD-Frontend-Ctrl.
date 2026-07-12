@@ -27,7 +27,7 @@ client = OpenAI(
     api_key=FIREWORKS_API_KEY
 )
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 GEMMA_DEPLOYMENT = "accounts/sergecalasara12-123/deployments/c5tpac33"
 
