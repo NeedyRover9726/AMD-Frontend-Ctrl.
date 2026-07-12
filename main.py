@@ -209,7 +209,7 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
-        highly_relevant_chunks = [dist for dist in distances if dist < 0.75]
+        highly_relevant_chunks = [dist for dist in distances if dist < 0.50]
         
         if not highly_relevant_chunks:
              return JSONResponse(
