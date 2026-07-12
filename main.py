@@ -31,7 +31,7 @@ client = OpenAI(
 # ==========================================
 # 🛠️ TESTING TOGGLE (Change to False for final build)
 # ==========================================
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 # Dedicated On-Demand Path (For Final Submission)
 GEMMA_DEPLOYMENT = "accounts/sergecalasara12-123/deployments/c5tpac33"
