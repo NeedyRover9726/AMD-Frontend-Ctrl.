@@ -34,7 +34,7 @@ client = OpenAI(
 DEBUG_MODE = False
 
 # Dedicated On-Demand Path (For Final Submission)
-GEMMA_DEPLOYMENT = "accounts/your_username/deployments/your_deployment_name"
+GEMMA_DEPLOYMENT = "accounts/sergecalasara12-123/deployments/c5tpac33"
 
 # The Absolute Best Serverless Fallbacks available right now
 SERVERLESS_VISION = "accounts/fireworks/models/qwen3p7-plus"
