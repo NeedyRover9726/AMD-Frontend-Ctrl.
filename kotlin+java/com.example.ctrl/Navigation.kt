@@ -41,7 +41,7 @@ fun CtrlApp(
 
     var selectedFileName by remember { mutableStateOf(sessionManager.selectedFileName) }
     var selectedFileUri by remember { mutableStateOf(sessionManager.selectedFileUri) }
-    
+
     var readingProgress by remember { mutableFloatStateOf(0.0f) }
     var isReadingStarted by remember { mutableStateOf(false) }
     var quizTopic by remember { mutableStateOf("") }
@@ -85,6 +85,25 @@ fun CtrlApp(
                 delay(60.seconds)
                 elapsedMinutes += 1f
                 sessionManager.elapsedMinutes = elapsedMinutes
+
+                // UPDATE FOREGROUND NOTIFICATION
+                val progress = elapsedMinutes / studyMinutes
+                val remainingMins = (studyMinutes - elapsedMinutes.toInt()).coerceAtLeast(0)
+                val hours = remainingMins / 60
+                val mins = remainingMins % 60
+                val timeLabel = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+
+                val updateIntent = Intent(context, AppBlockerService::class.java).apply {
+                    action = AppBlockerService.ACTION_UPDATE_PROGRESS
+                    putExtra(AppBlockerService.EXTRA_PROGRESS, progress)
+                    putExtra(AppBlockerService.EXTRA_TIME_REMAINING, timeLabel)
+                }
+                context.startService(updateIntent)
+
+                // 100% COMPLETION NOTIFICATION
+                if (elapsedMinutes >= studyMinutes) {
+                    Toast.makeText(context, "Goal Reached! 100% Study Session Complete.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -174,7 +193,7 @@ fun CtrlApp(
                                     }
                                 }
                             }
-                            
+
                             val filePart = MultipartBody.Part.createFormData("file", name, requestBody)
                             val titlePart = RequestBody.create(MediaType.parse("text/plain"), name)
 
@@ -245,7 +264,7 @@ fun CtrlApp(
                 onStartSession = {
                     if (!Settings.canDrawOverlays(context)) {
                         Toast.makeText(context, "Please ALLOW 'Display over other apps' to enable the App Blocker", Toast.LENGTH_LONG).show()
-                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri())
                         context.startActivity(intent)
                     } else {
                         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
@@ -263,7 +282,7 @@ fun CtrlApp(
                             elapsedMinutes = 0f
                             readingProgress = 0.0f
                             isReadingStarted = false
-                            
+
                             // Save to SessionManager
                             sessionManager.isSessionActive = true
                             sessionManager.studyMinutes = studyMinutes
@@ -306,6 +325,22 @@ fun CtrlApp(
             )
         }
         composable("quiz") {
+            // QUIZ LOCKDOWN: Enable when entering, disable when leaving
+            DisposableEffect(Unit) {
+                val lockIntent = Intent(context, AppBlockerService::class.java).apply {
+                    action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
+                    putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, true)
+                }
+                context.startService(lockIntent)
+                onDispose {
+                    val unlockIntent = Intent(context, AppBlockerService::class.java).apply {
+                        action = AppBlockerService.ACTION_QUIZ_LOCKDOWN
+                        putExtra(AppBlockerService.EXTRA_LOCKDOWN_STATE, false)
+                    }
+                    context.startService(unlockIntent)
+                }
+            }
+
             QuizScreen(
                 topic = quizTopic,
                 fileName = selectedFileName,
@@ -318,15 +353,9 @@ fun CtrlApp(
                     selectedFileName = ""
                     selectedFileUri = null
                     quizTopic = ""
-                    
+
                     // Clear persistent session
-                    sessionManager.isSessionActive = false
-                    sessionManager.studyMinutes = 0
-                    sessionManager.breakMinutes = 0
-                    sessionManager.elapsedMinutes = 0f
-                    sessionManager.selectedFileName = ""
-                    sessionManager.selectedFileUri = null
-                    sessionManager.blockedApps = emptyList()
+                    sessionManager.clearSession()
 
                     context.stopService(Intent(context, AppBlockerService::class.java))
                     navController.navigate("unlock") { popUpTo(0) }
