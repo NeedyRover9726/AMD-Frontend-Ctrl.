@@ -51,7 +51,6 @@ import kotlin.time.Duration.Companion.seconds
 
 import com.example.ctrl.ui.theme.*
 
-// --- 0. SPLASH SCREEN ---
 @Composable
 fun SplashScreen(onNavigateToHome: () -> Unit) {
     LaunchedEffect(Unit) {
@@ -70,7 +69,6 @@ fun SplashScreen(onNavigateToHome: () -> Unit) {
     }
 }
 
-// --- 1. HOME SCREEN ---
 @Composable
 fun HomeScreen(
     isActive: Boolean,
@@ -419,8 +417,10 @@ fun EndSessionScreen(minutesLeft: Int, onConfirm: () -> Unit, onCancel: () -> Un
 @Composable
 fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
     var selected by remember { mutableStateOf("60m") }
-    var customHours by remember { mutableIntStateOf(1) }
-    var customMins by remember { mutableIntStateOf(0) }
+
+    var customHours by remember { mutableIntStateOf(0) }
+    var customMins by remember { mutableIntStateOf(1) }
+
     val scrollState = rememberScrollState()
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp)) {
@@ -455,7 +455,12 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
         Spacer(modifier = Modifier.height(12.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OptionCard("2 hours", "", selected == "120m", { selected = "120m" }, Modifier.weight(1f))
-            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.weight(1f))
+            // REPLACED "Up to me" with "AI Decide" block
+            OptionCard("AI Decide", "Smart 45m block", selected == "ai", { selected = "ai" }, Modifier.weight(1f))
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(modifier = Modifier.fillMaxWidth()) {
+            OptionCard("Custom", "Set precise time", selected == "custom", { selected = "custom" }, Modifier.fillMaxWidth(0.48f))
         }
 
         if (selected == "custom") {
@@ -481,7 +486,7 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
         Button(
             onClick = {
                 val resolvedMinutes = when (selected) {
-                    "30m" -> 30; "60m" -> 60; "120m" -> 120; else -> ((customHours * 60) + customMins).coerceAtLeast(1)
+                    "30m" -> 30; "60m" -> 60; "120m" -> 120; "ai" -> 45; else -> ((customHours * 60) + customMins).coerceAtLeast(1)
                 }
                 onNext(resolvedMinutes)
             },
@@ -496,7 +501,7 @@ fun CreateSessionStep1(onNext: (Int) -> Unit, onBack: () -> Unit) {
 fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> Unit) {
     var selected by remember { mutableStateOf("30m") }
     var customHours by remember { mutableIntStateOf(0) }
-    var customMins by remember { mutableIntStateOf(15) }
+    var customMins by remember { mutableIntStateOf(1) }
     val scrollState = rememberScrollState()
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).verticalScroll(scrollState).padding(24.dp).padding(top = 32.dp)) {
@@ -568,31 +573,8 @@ fun CreateSessionStep2(studyTimeMins: Int, onNext: (Int) -> Unit, onBack: () -> 
 }
 
 @Composable
-fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onDeleteMaterial: (StudyMaterial) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
+fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: String, onFileSelected: (String, Uri) -> Unit, onNext: () -> Unit, onBack: () -> Unit) {
     var showError by remember { mutableStateOf(false) }
-    var materialToDelete by remember { mutableStateOf<StudyMaterial?>(null) }
-
-    if (materialToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { materialToDelete = null },
-            containerColor = CardDarkPurple,
-            title = { Text("Delete Material", color = TextWhite, fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete '${materialToDelete!!.name}'?", color = TextMutedLilac) },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDeleteMaterial(materialToDelete!!)
-                    materialToDelete = null
-                }) {
-                    Text("Delete", color = Color(0xFFE53935), fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { materialToDelete = null }) {
-                    Text("Cancel", color = TextMutedLilac)
-                }
-            }
-        )
-    }
 
     Column(modifier = Modifier.fillMaxSize().background(BgMidnight).padding(24.dp).padding(top = 32.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -640,9 +622,6 @@ fun CreateSessionStep3(uploadedMaterials: List<StudyMaterial>, currentFileName: 
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(material.name, color = TextWhite, fontWeight = FontWeight.Bold, maxLines = 1)
-                            }
-                            IconButton(onClick = { materialToDelete = material }, modifier = Modifier.size(24.dp)) {
-                                Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color(0xFFE53935))
                             }
                         }
                     }
@@ -860,7 +839,6 @@ fun Modifier.dashedBorder(color: Color, strokeWidth: Dp, cornerRadius: Dp) = thi
     )
 }
 
-// FIXED: Customizable Reusable Dialogs
 @Composable
 fun CancelWarningDialog(
     title: String,
@@ -900,7 +878,6 @@ fun InterceptInputScreen(fileName: String, onGenerateQuiz: (String, String) -> U
     BackHandler { showEscapeWarning = true }
 
     if (showEscapeWarning) {
-        // FIXED: Custom warning explicitly for the Intercept Screen
         CancelWarningDialog(
             title = "Cancel Intercept?",
             message = "Are you sure you want to go back to studying? Your apps will remain strictly blocked until you pass a quiz.",
@@ -1046,7 +1023,6 @@ fun QuizScreen(topic: String, fileName: String, onPass: () -> Unit, onFailReturn
     BackHandler(enabled = quizState == QuizState.ACTIVE) { showEscapeWarning = true }
 
     if (showEscapeWarning) {
-        // FIXED: Dialog specific to exiting an active quiz
         CancelWarningDialog(
             title = "End Quiz Attempt?",
             message = "Are you sure you want to exit the quiz? Your selected apps will remain strictly blocked until you pass.",
