@@ -102,7 +102,7 @@ class AppBlockerService : Service() {
 
                 val sm = SessionManager(this@AppBlockerService)
 
-                // 1. BACKGROUND TIMER & PHASE LOGIC (Runs perfectly even on Home Screen)
+                // 1. BACKGROUND TIMER & PHASE LOGIC
                 var elapsedMillis = (sm.elapsedMinutes * 60 * 1000).toLong()
                 elapsedMillis += delta
                 sm.elapsedMinutes = elapsedMillis / 60000f
@@ -137,12 +137,14 @@ class AppBlockerService : Service() {
                         sm.elapsedMinutes = 0f
                         triggerAlert("Break Time is Up! ⏳", "Apps are locked again. Back to studying!")
 
-                        // FIXED: Forces the user immediately back to the Ctrl app when break is over!
-                        val returnIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                            putExtra("NAVIGATE_TO", "home")
+                        // FIXED: Respects Quiz Lockdown! Do not rip the user to the Home screen if they are taking a Quiz.
+                        if (!isQuizLockdown) {
+                            val returnIntent = Intent(this@AppBlockerService, MainActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                                putExtra("NAVIGATE_TO", "home")
+                            }
+                            startActivity(returnIntent)
                         }
-                        startActivity(returnIntent)
                     }
                 }
 
