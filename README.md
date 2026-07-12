@@ -25,7 +25,8 @@ docker build -t ctrl-backend .
 docker run -p 8000:8000 \
   --env FIREWORKS_API_KEY=your_fireworks_key_here \
   --env GEMINI_API_KEY=your_gemini_key_here \
-  ctrl-backend```
+  ctrl-backend
+
 
 ### 🖥️ AMD Hardware Proof (`/proof` directory)
 
