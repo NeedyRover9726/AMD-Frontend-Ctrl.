@@ -60,7 +60,6 @@ fun CtrlApp(
 
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
 
-    // FIXED: Notification Permission Launcher for Android 13+
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -70,7 +69,6 @@ fun CtrlApp(
     }
 
     LaunchedEffect(Unit) {
-        // Request Notification Permission immediately on App Launch
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val isGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             if (!isGranted) {
@@ -103,63 +101,14 @@ fun CtrlApp(
         installedApps = appList.sortedBy { it.name }
     }
 
-    LaunchedEffect(isSessionActive, isBreakMode) {
+    // FIXED: The UI now safely polls the SessionManager every second.
+    // The actual background timer is running perfectly in AppBlockerService!
+    LaunchedEffect(isSessionActive) {
         if (isSessionActive) {
-            val targetMins = if (isBreakMode) breakMinutes else studyMinutes
-
-            if (targetMins > 0) {
-                while (elapsedMinutes < targetMins) {
-                    delay(60.seconds)
-                    elapsedMinutes += 1f
-                    sessionManager.elapsedMinutes = elapsedMinutes
-
-                    val progress = elapsedMinutes / targetMins
-                    val remainingMins = (targetMins - elapsedMinutes.toInt()).coerceAtLeast(0)
-                    val hours = remainingMins / 60
-                    val mins = remainingMins % 60
-                    val timeLabel = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
-                    val modeLabel = if (isBreakMode) "Break Time" else "Study Time"
-
-                    val updateIntent = Intent(context, AppBlockerService::class.java).apply {
-                        action = AppBlockerService.ACTION_UPDATE_PROGRESS
-                        putExtra(AppBlockerService.EXTRA_PROGRESS, progress)
-                        putExtra(AppBlockerService.EXTRA_TIME_REMAINING, "$modeLabel: $timeLabel")
-                    }
-                    context.startService(updateIntent)
-                }
-
-                if (!isBreakMode) {
-                    if (breakMinutes > 0) {
-                        isBreakMode = true
-                        sessionManager.isBreakMode = true
-                        elapsedMinutes = 0f
-                        sessionManager.elapsedMinutes = 0f
-
-                        val phaseIntent = Intent(context, AppBlockerService::class.java).apply {
-                            action = AppBlockerService.ACTION_PHASE_CHANGE
-                            putExtra(AppBlockerService.EXTRA_IS_BREAK, true)
-                            putExtra(AppBlockerService.EXTRA_ALERT_TITLE, "Goal Reached! 100% Complete \uD83C\uDF89")
-                            putExtra(AppBlockerService.EXTRA_ALERT_MSG, "You finished your study session. Apps are unlocked for your break!")
-                        }
-                        context.startService(phaseIntent)
-                    } else {
-                        elapsedMinutes = 0f
-                        sessionManager.elapsedMinutes = 0f
-                    }
-                } else {
-                    isBreakMode = false
-                    sessionManager.isBreakMode = false
-                    elapsedMinutes = 0f
-                    sessionManager.elapsedMinutes = 0f
-
-                    val phaseIntent = Intent(context, AppBlockerService::class.java).apply {
-                        action = AppBlockerService.ACTION_PHASE_CHANGE
-                        putExtra(AppBlockerService.EXTRA_IS_BREAK, false)
-                        putExtra(AppBlockerService.EXTRA_ALERT_TITLE, "Break Time is Up! ⏳")
-                        putExtra(AppBlockerService.EXTRA_ALERT_MSG, "Apps are locked again. Back to studying!")
-                    }
-                    context.startService(phaseIntent)
-                }
+            while (true) {
+                elapsedMinutes = sessionManager.elapsedMinutes
+                isBreakMode = sessionManager.isBreakMode
+                delay(1.seconds)
             }
         }
     }
@@ -183,6 +132,18 @@ fun CtrlApp(
             })
         }
         composable("home") {
+            LaunchedEffect(isSessionActive, isReadingStarted) {
+                if (isSessionActive && isReadingStarted && readingProgress < 1.0f) {
+                    while (readingProgress < 1.0f) {
+                        delay(5.seconds)
+                        readingProgress = (readingProgress + 0.1f).coerceAtMost(1.0f)
+                    }
+                    if (readingProgress >= 1.0f) {
+                        navController.navigate("quiz") { popUpTo("home") { saveState = true } }
+                    }
+                }
+            }
+
             HomeScreen(
                 isActive = isSessionActive,
                 isBreakMode = isBreakMode,
@@ -301,15 +262,6 @@ fun CtrlApp(
                     selectedFileUri = uri
                     sessionManager.selectedFileName = fileName
                     sessionManager.selectedFileUri = uri
-                },
-                onDeleteMaterial = { material ->
-                    uploadedMaterials.remove(material)
-                    if (selectedFileName == material.name) {
-                        selectedFileName = ""
-                        selectedFileUri = null
-                        sessionManager.selectedFileName = ""
-                        sessionManager.selectedFileUri = null
-                    }
                 },
                 onNext = { navController.navigate("create_step_4") },
                 onBack = { navController.popBackStack() }
