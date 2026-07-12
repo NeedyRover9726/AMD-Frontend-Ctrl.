@@ -208,8 +208,17 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
-        highly_relevant_chunks = [dist for dist in distances if dist < 1.2]
-        concept_count = max(1, len(highly_relevant_chunks))
+        highly_relevant_chunks = [dist for dist in distances if dist < 0.75]
+        
+        if not highly_relevant_chunks:
+             return JSONResponse(
+                status_code=400,
+                content={"error": "INSUFFICIENT_DATA", "message": "No highly relevant material found for this topic."}
+            )
+
+        concept_count = len(highly_relevant_chunks) 
+        
+        
         calculated_length = concept_count * 2
         quiz_length = max(5, min(25, calculated_length))
         
