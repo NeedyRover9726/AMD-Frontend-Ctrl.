@@ -209,7 +209,11 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
                 content={"error": "INSUFFICIENT_DATA", "message": "No relevant material found for this topic."}
             )
 
-        highly_relevant_chunks = [dist for dist in distances if dist < 0.50]
+        best_distance = distances[0]
+        highly_relevant_chunks = [
+            dist for dist in distances 
+            if dist <= (best_distance + 0.15) and dist < 0.55
+        ]
         
         if not highly_relevant_chunks:
              return JSONResponse(
@@ -218,13 +222,10 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
             )
 
         concept_count = len(highly_relevant_chunks) 
-        
-        
-        calculated_length = concept_count * 2
+        calculated_length = int(concept_count * 1.5)
         quiz_length = max(5, min(25, calculated_length))
         
         context_text = "\n---\n".join(retrieved_documents)
-
         system_prompt = (
             "You are an academic instructor. Your ONLY task is to generate multiple-choice questions based EXCLUSIVELY on the provided Context.\n"
             "Rules:\n"
