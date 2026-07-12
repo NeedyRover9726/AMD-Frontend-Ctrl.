@@ -6,7 +6,7 @@
 
 ### 📖 Overview
 
-A Dockerized Python FastAPI web service powering **Ctrl.** Parses multimodal study materials and generates dynamic micro-quizzes using RAG. Initially prototyped on bare-metal AMD Instinct MI300X GPUs, it is now optimized for a serverless 24/7 production environment on Render using Fireworks AI.
+A Dockerized Python FastAPI web service powering **Ctrl.** Parses multimodal study materials and generates dynamic micro-quizzes using RAG. Initially prototyped on bare-metal AMD Instinct MI300X GPUs, it is now optimized for a serverless 24/7 production environment on Render using Fireworks AI, with an automated 0-credit fallback mechanism utilizing the Gemini API.
 
 ### 🚀 Quick Start
 
@@ -14,17 +14,18 @@ A Dockerized Python FastAPI web service powering **Ctrl.** Parses multimodal stu
 Use the Live API URL above.
 
 > ⚠️ **Cold Starts:** To save costs, the server scales to zero during inactivity. Expect a brief delay on your first request.
-> ⚠️ **Credit Limits:** Because this live environment is left open, we may occasionally run out of API credits. **For uninterrupted use, we highly recommend running it locally or from your frontend using your own API key.**
+> ⚠️ **Credit Limits:** Because this live environment is left open, we may occasionally run out of Fireworks API credits. **The server is configured to automatically fall back to a free-tier Gemini model if this happens, ensuring uninterrupted use. However, for maximum performance, we still recommend running it locally using your own keys.**
 
 **2. Local Docker (Recommended)**
 
 ```bash
-git clone https://github.com/yourusername/ctrl-backend.git && cd ctrl-backend
+git clone [https://github.com/yourusername/ctrl-backend.git](https://github.com/yourusername/ctrl-backend.git) && cd ctrl-backend
 docker build -t ctrl-backend .
-# Run with your own API key to bypass live server credit limits
-docker run -p 8000:8000 --env FIREWORKS_API_KEY=your_key_here ctrl-backend
-
-```
+# Run with your own API keys to bypass live server limits
+docker run -p 8000:8000 \
+  --env FIREWORKS_API_KEY=your_fireworks_key_here \
+  --env GEMINI_API_KEY=your_gemini_key_here \
+  ctrl-backend```
 
 ### 🖥️ AMD Hardware Proof (`/proof` directory)
 
