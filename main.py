@@ -42,7 +42,7 @@ gemini_client = OpenAI(
 DEBUG_MODE = False
 
 # Primary models
-GEMMA_DEPLOYMENT = "accounts/sergecalasara12-123/deployments/c5tpac33"
+GEMMA_DEPLOYMENT = "accounts/skyler5/deployments/rkt0w8pb"
 SERVERLESS_VISION = "accounts/fireworks/models/qwen3p7-plus"
 SERVERLESS_TEXT = "accounts/fireworks/models/deepseek-v4-flash"
 
