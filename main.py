@@ -41,7 +41,7 @@ if GEMINI_API_KEY:
 else:
     print("WARNING: GEMINI_API_KEY is missing. Fallback logic will be disabled.")
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 
 # Primary models
 GEMMA_DEPLOYMENT = "accounts/skyler5/deployments/rkt0w8pb"
