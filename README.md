@@ -1,5 +1,8 @@
 # Ctrl. - The AI-Powered Focus App 🧠⚡ (Frontend)
 
+
+!!DO NOTE THAT THE GEMMA MODEL MAY NEED TIME TO WAKE UP AFTER INACTIVITY LEADING TO FAILURE IN PHOTO PARSING AND QUIZ GENERATION. TIP: UPLOAD AN IMAGE OF A DOCUMENT AND WAIT UNTIL IT IS SUCCESSFULLY UPLOADED BEFORE PROCEEDING WITH CREATING A SESSION!!
+
 The frontend of **Ctrl.** is a native Kotlin Android application designed to intercept doomscrolling at the OS level. Instead of relying on standard focus timers, Ctrl. forces users to earn their screen time by overlaying distracting apps and requiring them to pass an AI-generated micro-quiz based on their uploaded study materials.
 
 ---
