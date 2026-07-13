@@ -5,6 +5,7 @@ import json
 import chromadb
 import fitz  # PyMuPDF for handling PDFs
 import openai # Added for fallback exception handling
+import asyncio # Added for the 503 scaling-up retry loop
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -22,10 +23,7 @@ FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not FIREWORKS_API_KEY:
-    raise ValueError("FIREWORKS_API_KEY is not set. Please check your .env file.")
-
-if not GEMINI_API_KEY:
-    print("WARNING: GEMINI_API_KEY is not set. Fallback will not work.")
+    raise ValueError("FIREWORKS_API_KEY is not set. Please check your environment variables.")
 
 # Primary client (Fireworks)
 client = OpenAI(
@@ -33,22 +31,26 @@ client = OpenAI(
     api_key=FIREWORKS_API_KEY
 )
 
-# Secondary client (Gemini 0-Cred Fallback)
-gemini_client = OpenAI(
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-    api_key=GEMINI_API_KEY
-)
+# Safe Initialization for Gemini 0-Cred Fallback
+gemini_client = None
+if GEMINI_API_KEY:
+    gemini_client = OpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=GEMINI_API_KEY
+    )
+else:
+    print("WARNING: GEMINI_API_KEY is missing. Fallback logic will be disabled.")
 
 DEBUG_MODE = False
 
 # Primary models
-GEMMA_DEPLOYMENT = "accounts/skyler5/deployments/rkt0w8pb"
+GEMMA_DEPLOYMENT = "accounts/sergecalasara12-123/deployments/c5tpac33"
 SERVERLESS_VISION = "accounts/fireworks/models/qwen3p7-plus"
 SERVERLESS_TEXT = "accounts/fireworks/models/deepseek-v4-flash"
 
-# Fallback models (Gemini 1.5 Flash natively supports both text and vision)
-FALLBACK_VISION = "gemini-1.5-flash"
-FALLBACK_TEXT = "gemini-1.5-flash"
+# Fallback models (using the latest supported 3.5 series)
+FALLBACK_VISION = "gemini-3.5-flash"
+FALLBACK_TEXT = "gemini-3.5-flash"
 
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
@@ -128,20 +130,51 @@ async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
                 }
             ]
             
-            try:
-                # Attempt primary deployment
-                vision_completion = client.chat.completions.create(
-                    model=active_vision_model,
-                    messages=messages_payload
-                )
-            except (openai.RateLimitError, openai.APIStatusError) as e:
-                # Fallback to Gemini if out of credits (402) or rate limited (429)
-                print(f"Primary vision model failed: {e}. Falling back to free Gemini...")
-                vision_completion = gemini_client.chat.completions.create(
-                    model=FALLBACK_VISION,
-                    messages=messages_payload
-                )
+            # Smart Retry Loop: Wait up to 60s for waking models, fallback immediately if 0 credits
+            max_retries = 6
+            for attempt in range(max_retries):
+                try:
+                    # Attempt primary deployment
+                    vision_completion = client.chat.completions.create(
+                        model=active_vision_model,
+                        messages=messages_payload
+                    )
+                    break # Success! Break out of the loop
+                    
+                except openai.APIStatusError as e:
+                    # 503: Model is currently waking up from sleep
+                    if e.status_code == 503:
+                        if attempt < max_retries - 1:
+                            print(f"Primary model is waking up... Retrying in 10s (Attempt {attempt + 1}/{max_retries})")
+                            await asyncio.sleep(10)
+                            continue
+                        else:
+                            raise HTTPException(status_code=503, detail="The primary model took too long to wake up. Please try again.")
+                            
+                    # 402: Account is out of credits
+                    elif e.status_code == 402:
+                        print("0 balance detected. Falling back to free Gemini...")
+                        if gemini_client:
+                            try:
+                                vision_completion = gemini_client.chat.completions.create(
+                                    model=FALLBACK_VISION,
+                                    messages=messages_payload
+                                )
+                                break
+                            except Exception as gemini_err:
+                                print(f"❌ GEMINI FALLBACK FAILED: {gemini_err}")
+                                raise HTTPException(status_code=502, detail=f"Gemini fallback failed: {gemini_err}")
+                        else:
+                            raise HTTPException(status_code=502, detail="0 balance detected and Gemini fallback is not configured.")
+                    
+                    # Any other API error
+                    else:
+                        raise e
                 
+                # Catch specific rate limits
+                except openai.RateLimitError as e:
+                    raise HTTPException(status_code=429, detail="You have hit the rate limit. Please slow down.")
+
             extracted_text = vision_completion.choices[0].message.content
             
         elif "pdf" in content_type:
@@ -182,6 +215,8 @@ async def upload_material(title: str = Form(...), file: UploadFile = File(...)):
         )
         
         return {"status": "success", "title": title, "chunks_saved": len(enhanced_chunks)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -224,7 +259,6 @@ async def delete_material(title: str = Query(..., description="The title of the 
         }
         
     except HTTPException:
-        # Re-raise HTTP exceptions so FastAPI handles them properly
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -293,27 +327,58 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
 
         active_text_model = SERVERLESS_TEXT if DEBUG_MODE else GEMMA_DEPLOYMENT
 
-        try:
-            # Attempt primary deployment
-            quiz_completion = client.chat.completions.create(
-                model=active_text_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ],
-                temperature=0.2 
-            )
-        except (openai.RateLimitError, openai.APIStatusError) as e:
-            # Fallback to Gemini if out of credits (402) or rate limited (429)
-            print(f"Primary text model failed: {e}. Falling back to free Gemini...")
-            quiz_completion = gemini_client.chat.completions.create(
-                model=FALLBACK_TEXT,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content}
-                ],
-                temperature=0.2 
-            )
+        # Smart Retry Loop: Wait up to 60s for waking models, fallback immediately if 0 credits
+        max_retries = 6
+        for attempt in range(max_retries):
+            try:
+                # Attempt primary deployment
+                quiz_completion = client.chat.completions.create(
+                    model=active_text_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    temperature=0.2 
+                )
+                break # Success! Break out of the loop
+                
+            except openai.APIStatusError as e:
+                # 503: Model is currently waking up from sleep
+                if e.status_code == 503:
+                    if attempt < max_retries - 1:
+                        print(f"Primary model is waking up... Retrying in 10s (Attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(10)
+                        continue
+                    else:
+                        raise HTTPException(status_code=503, detail="The primary model took too long to wake up. Please try again.")
+                        
+                # 402: Account is out of credits
+                elif e.status_code == 402:
+                    print("0 balance detected. Falling back to free Gemini...")
+                    if gemini_client:
+                        try:
+                            quiz_completion = gemini_client.chat.completions.create(
+                                model=FALLBACK_TEXT,
+                                messages=[
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_content}
+                                ],
+                                temperature=0.2 
+                            )
+                            break
+                        except Exception as gemini_err:
+                            print(f"❌ GEMINI FALLBACK FAILED: {gemini_err}")
+                            raise HTTPException(status_code=502, detail=f"Gemini fallback failed: {gemini_err}")
+                    else:
+                        raise HTTPException(status_code=502, detail="0 balance detected and Gemini fallback is not configured.")
+                
+                # Any other API error
+                else:
+                    raise e
+            
+            # Catch specific rate limits
+            except openai.RateLimitError as e:
+                raise HTTPException(status_code=429, detail="You have hit the rate limit. Please slow down.")
         
         raw_output = quiz_completion.choices[0].message.content.strip()
         
@@ -338,6 +403,8 @@ async def generate_quiz(topic: str = Form(...), selected_titles: str = Form(...)
 
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Model failed to output a valid JSON format. Try again.")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
