@@ -39,7 +39,7 @@ gemini_client = OpenAI(
     api_key=GEMINI_API_KEY
 )
 
-DEBUG_MODE = False
+DEBUG_MODE = True
 
 # Primary models
 GEMMA_DEPLOYMENT = "accounts/skyler5/deployments/rkt0w8pb"
