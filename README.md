@@ -21,7 +21,7 @@ Use the Live API URL above.
 **2. Local Docker (Recommended)**
 
 ```bash
-git clone [https://github.com/yourusername/ctrl-backend.git](https://github.com/yourusername/ctrl-backend.git) && cd ctrl-backend
+git clone -b backend https://github.com/yourusername/ctrl.git && cd ctrl
 docker build -t ctrl-backend .
 # Run with your own API keys to bypass live server limits
 docker run -p 8000:8000 \
